@@ -214,7 +214,7 @@ String.6.0=2025,1,28,9,56,7
 [Root.Source Files]
 ElemType=Folder
 PathName=Source Files
-Child=Root.Source Files.stm8s_tim4.c
+Child=Root.Source Files.uart.c
 Next=Root.Include Files
 Config.0=Root.Source Files.Config.0
 Config.1=Root.Source Files.Config.1
@@ -285,6 +285,26 @@ String.4.0=
 String.5.0=
 String.6.0=2025,1,28,9,56,7
 
+[Root.Source Files.uart.c]
+ElemType=File
+PathName=uart.c
+Next=Root.Source Files.stm8s_uart1.c
+
+[Root.Source Files.stm8s_uart1.c]
+ElemType=File
+PathName=stm8s_uart1.c
+Next=Root.Source Files.stm8s_spi.c
+
+[Root.Source Files.stm8s_spi.c]
+ElemType=File
+PathName=stm8s_spi.c
+Next=Root.Source Files.rc522.c
+
+[Root.Source Files.rc522.c]
+ElemType=File
+PathName=rc522.c
+Next=Root.Source Files.stm8s_tim4.c
+
 [Root.Source Files.stm8s_tim4.c]
 ElemType=File
 PathName=stm8s_tim4.c
@@ -312,7 +332,7 @@ PathName=stm8s_gpio.c
 [Root.Include Files]
 ElemType=Folder
 PathName=Include Files
-Child=Root.Include Files.stm8s_tim4.h
+Child=Root.Include Files.uart.h
 Config.0=Root.Include Files.Config.0
 Config.1=Root.Include Files.Config.1
 
@@ -381,6 +401,26 @@ String.3.0=
 String.4.0=
 String.5.0=
 String.6.0=2025,1,28,9,56,7
+
+[Root.Include Files.uart.h]
+ElemType=File
+PathName=uart.h
+Next=Root.Include Files.stm8s_uart1.h
+
+[Root.Include Files.stm8s_uart1.h]
+ElemType=File
+PathName=stm8s_uart1.h
+Next=Root.Include Files.stm8s_spi.h
+
+[Root.Include Files.stm8s_spi.h]
+ElemType=File
+PathName=stm8s_spi.h
+Next=Root.Include Files.rc522.h
+
+[Root.Include Files.rc522.h]
+ElemType=File
+PathName=rc522.h
+Next=Root.Include Files.stm8s_tim4.h
 
 [Root.Include Files.stm8s_tim4.h]
 ElemType=File
