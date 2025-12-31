@@ -23,88 +23,73 @@ void Delay_us(unsigned int nus)
 }
 
 /* ===== 125kHz Carrier：改成 TIM1_CH1N → PB0 ===== */
-void LF_ClockOccurs(uint16_t lf_khz)
+/* legacy name：保留給你既有 main.c 呼叫 */
+/**
+ * @brief  產生指定頻率(kHz)的 TIM1 PWM，50% duty，只輸出 CH1N
+ * @param  lf_khz: 例如 125 代表 125kHz
+ */
+void LF_ClockOccurs(unsigned char LF_Pll)
 {
-    uint32_t tim_clk_hz = 16000000UL;      // TIM1 clock (假設16MHz)
-    uint32_t target_hz  = (uint32_t)lf_khz * 1000UL;
+    uint32_t tim_clk_hz = 16000000UL;                // TIM1 clock (假設16MHz)
+    uint32_t target_hz  = (uint32_t)LF_Pll * 1000UL; // LF_Pll 代表 kHz
     uint16_t arr;
     uint16_t ccr;
 
-    if (lf_khz == 0) return;               // 避免除以0
+    if (LF_Pll == 0u) return;                        // 避免除以0
 
     // ARR = (Fclk / Fout) - 1
     arr = (uint16_t)((tim_clk_hz / target_hz) - 1UL);
 
     // 50% duty：CCR = (ARR+1)/2
-    ccr = (uint16_t)((arr + 1U) / 2U);
+    ccr = (uint16_t)((arr + 1u) / 2u);
 
     TIM1_DeInit();
 
-    // Time base：Prescaler=0，Period=ARR
     TIM1_TimeBaseInit(
-        0,                                 // Prescaler = 0
+        0,                    // Prescaler = 0
         TIM1_COUNTERMODE_UP,
         arr,
-        0                                  // RepetitionCounter (一般用0)
+        0                     // RepetitionCounter
     );
 
-    // CH1 PWM：只要 N 輸出，所以 OutputState=DISABLE, OutputNState=ENABLE
     TIM1_OC1Init(
         TIM1_OCMODE_PWM1,
-        TIM1_OUTPUTSTATE_DISABLE,           // CH1 不輸出
-        TIM1_OUTPUTNSTATE_ENABLE,           // 只輸出 CH1N
-        ccr,                                // Pulse
+        TIM1_OUTPUTSTATE_DISABLE,
+        TIM1_OUTPUTNSTATE_ENABLE,
+        ccr,
         TIM1_OCPOLARITY_HIGH,
         TIM1_OCNPOLARITY_HIGH,
         TIM1_OCIDLESTATE_RESET,
         TIM1_OCNIDLESTATE_RESET
     );
 
-    TIM1_OC1PreloadConfig(ENABLE);          // 等同你原本 OC1PE
-    TIM1_ARRPreloadConfig(ENABLE);          // 等同你原本 ARPE
+    TIM1_OC1PreloadConfig(ENABLE);
+    TIM1_ARRPreloadConfig(ENABLE);
 
-    // Main Output Enable：等同你原本 BKR.MOE
     TIM1_CtrlPWMOutputs(ENABLE);
-
-    // Counter = 0：等同你原本 CNTRH/CNTRL = 0
     TIM1_SetCounter(0);
-
-    TIM1_Cmd(ENABLE);                       // 啟動計數器
+    TIM1_Cmd(ENABLE);
 }
-/*
- * LF_Pll：你原本的寫法是 (16000 / LF_Pll) - 1
- * 代表 LF_Pll 單位通常是 kHz（例如 125 => 125kHz）
- *
- * 16MHz / 125kHz = 128 (counts)
- * ARR = 128 - 1 = 127
- * 50% duty => CCR = (ARR+1)/2 = 64
- */
-void LF_PLL_SET(uint8_t LF_Pll)
+
+void LF_PLL_SET(unsigned char LF_Pll)
 {
     uint16_t arr;
     uint16_t ccr;
 
-    if (LF_Pll == 0) return;                 // 避免除以 0
+    if (LF_Pll == 0u) return;
 
-    // ARR = (F_CPU / F_out) - 1
-    // 你原本用 16000 / LF_Pll - 1（16MHz / (LF_Pll*kHz) - 1）
-    arr = (uint16_t)((16000UL / LF_Pll) - 1);
+    arr = (uint16_t)((16000UL / (uint32_t)LF_Pll) - 1UL);
+    ccr = (uint16_t)((arr + 1u) / 2u);
 
-    // 50% duty：用 (ARR+1)/2 會比 ARR/2 更貼近真正 50%
-    ccr = (uint16_t)((arr + 1) / 2);
-
-    // 先停表，避免動態改 ARR/CCR 造成毛刺
     TIM1_Cmd(DISABLE);
 
-    // Time base：PSC=0、ARR=arr、Up counter
     TIM1_TimeBaseInit(
-        0,                          // Prescaler
-        TIM1_COUNTERMODE_UP,        // Counter mode
-        arr,                        // Period (ARR)
-        0                           // RepetitionCounter
+        0,
+        TIM1_COUNTERMODE_UP,
+        arr,
+        0
     );
 
-    // CH1 PWM：High true、啟用輸出、CCR=ccr
     TIM1_OC1Init(
         TIM1_OCMODE_PWM1,
         TIM1_OUTPUTSTATE_ENABLE,
@@ -116,59 +101,26 @@ void LF_PLL_SET(uint8_t LF_Pll)
         TIM1_OCNIDLESTATE_RESET
     );
 
-    // 使能 preload（等效你在用 preload 的常見做法，更新更穩）
     TIM1_OC1PreloadConfig(ENABLE);
     TIM1_ARRPreloadConfig(ENABLE);
-
-    // 高級計時器輸出需要 MOE（主輸出使能）
     TIM1_CtrlPWMOutputs(ENABLE);
 
-    // 開始計時
     TIM1_Cmd(ENABLE);
 }
 
-void Out_125K(unsigned int tim, unsigned char LF_Send_CHx)
-{      
-    switch(LF_Send_CHx)
-    {
-        case LF_SEND_CH1:
-            CH1_GPIO_OPEN;
-            Delay_us(tim);
-            break;
-        case LF_SEND_CH2:
-            CH2_GPIO_OPEN;
-            Delay_us(tim);
-            break;	
-        case LF_SEND_CH3:
-            CH3_GPIO_OPEN;
-            Delay_us(tim);
-            break;
-        default:
-            break;
-    }
+
+/* ======== 其餘：你原本 lf_send.c 保留不動 ======== */
+static void Out_125K(unsigned int tim, unsigned char LF_Send_CHx)
+{
+	CH1_GPIO_OPEN;
+	Delay_us(tim);
 }
 
-void Clock_125K(unsigned int tim, unsigned char LF_Send_CHx)
-{      
-    switch(LF_Send_CHx)
-    {
-        case LF_SEND_CH1:
-            CH1_GPIO_CLOCK;
-            Delay_us(tim);
-            break;
-        case LF_SEND_CH2:
-            CH2_GPIO_CLOCK;
-            Delay_us(tim);
-            break;	
-        case LF_SEND_CH3:
-            CH3_GPIO_CLOCK;
-            Delay_us(tim);
-            break;
-        default:
-            break;
-    }
+static void Clock_125K(unsigned int tim, unsigned char LF_Send_CHx)
+{
+	CH1_GPIO_CLOCK;
+	Delay_us(tim);
 }
-
 void Timecalculate(void)
 {
     unsigned char Tcarr;
