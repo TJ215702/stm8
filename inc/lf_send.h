@@ -3,7 +3,7 @@
 
 #include "stm8s.h"
 
-/* 103: CH1 gate = PC7 ¡÷ 105: §ï¥Î PE5 ·í 125K_EN */
+/* 103: CH1 gate = PC7 ¡÷ 105: using PE5 as 125K_EN */
 #define CH1_GPIO_OPEN   (GPIOE->ODR |= (uint8_t)0x20)    /* PE5 = 1, enable 125K driver */
 #define CH1_GPIO_CLOCK  (GPIOE->ODR &= (uint8_t)~0x20)  /* PE5 = 0, disable 125K driver */
 

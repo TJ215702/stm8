@@ -1,5 +1,5 @@
-/*  BASIC INTERRUPT VECTOR TABLE FOR STM8S103/105
- *  適用：STM8S103x / STM8S105x
+/* BASIC INTERRUPT VECTOR TABLE FOR STM8S103/105
+ * Applicable to: STM8S103x / STM8S105x
  */
 #include "stm8s_conf.h"
 
@@ -12,22 +12,22 @@ struct interrupt_vector {
 
 @far @interrupt void NonHandledInterrupt(void)
 {
-    /* 開發階段可以在這裡下 breakpoint，抓未知中斷 */
     return;
 }
 
-/* COSMIC 啟動程式入口 */
+/* COSMIC startup entry point */
 extern void _stext(void);
 
-/* 你的 TIM2 update 中斷 handler（原本叫 pc_irqhandler） */
+/* TIM2 update interrupt handler (formerly named pc_irqhandler) */
 extern @far @interrupt void pc_irqhandler(void);
 
 /* ============================================================
  *  Interrupt vector table
- *  irq 編號對照：
- *    13 = TIM2 Update/Overflow/Break
- *    23 = TIM4 Update/Overflow
- *  目前只用 irq13，其它都指到 NonHandledInterrupt。
+ *  IRQ number mapping:
+ *    13 = TIM2 Update / Overflow / Break
+ *    23 = TIM4 Update / Overflow
+ *  Currently only IRQ13 is used; all others are mapped to
+ *  NonHandledInterrupt.
  * ============================================================ */
 struct interrupt_vector const _vectab[] = {
     {0x82, (interrupt_handler_t)_stext},            /* RESET */
@@ -45,10 +45,7 @@ struct interrupt_vector const _vectab[] = {
     {0x82, NonHandledInterrupt},                    /* irq10 */
     {0x82, NonHandledInterrupt},                    /* irq11 */
     {0x82, NonHandledInterrupt},                    /* irq12 */
-
-    /* ★ 這一個是 TIM2 Update/Overflow/Break → 你的 pc_irqhandler */
     {0x82, (interrupt_handler_t)pc_irqhandler},     /* irq13 */
-
     {0x82, NonHandledInterrupt},                    /* irq14 */
     {0x82, NonHandledInterrupt},                    /* irq15 */
     {0x82, NonHandledInterrupt},                    /* irq16 */
@@ -58,10 +55,7 @@ struct interrupt_vector const _vectab[] = {
     {0x82, NonHandledInterrupt},                    /* irq20 */
     {0x82, NonHandledInterrupt},                    /* irq21 */
     {0x82, NonHandledInterrupt},                    /* irq22 */
-
-    /* 若未來要用 TIM4 Update，可以把這行改成對應的 isr */
     {0x82, NonHandledInterrupt},                    /* irq23 = TIM4 UPD/OVF */
-
     {0x82, NonHandledInterrupt},                    /* irq24 */
     {0x82, NonHandledInterrupt},                    /* irq25 */
     {0x82, NonHandledInterrupt},                    /* irq26 */

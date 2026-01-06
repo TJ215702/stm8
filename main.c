@@ -1,73 +1,78 @@
-/* MAIN.C file – STM8S105K4T6 Keyless (103F3 → 105K4T6 移植版)
+/* MAIN.C file – STM8S105K4T6 Keyless (103F3 → 105K4T6)
  *
- * I/O 對應：
- *   Learn Key       = PA2（高 = 按下）
- *   Mode Key        = PB4（高 = 按下）
- *   Lfsend Key      = PB5（高 = 按下）
- *   RF DO           = PD0（Active Low）
- *   RF SHDN         = PD2（Low = Enable）
- *   Learn LED       = PB2（高亮）
- *   Mode LED        = PB1（高亮）
- *   Lfsend LED      = PD3（高亮）
- *   Out LED         = PB3（高亮）
- *   125K carrier    = PB0 (TIM1_CH1N)  → 在 LF_Send.c 裡用 TIM1 產生
- *   125K_EN gate    = PE5（高 = 啟動）
+ * I/O mapping：
+ *   Learn Key       = PA2(High -> Press)
+ *   Mode Key        = PB4(High -> Press)
+ *   Lfsend Key      = PB5(High -> Press)
+ *   RF DO           = PD0(Active Low)
+ *   RF SHDN         = PD2(Low = Enable)
+ *   Learn LED       = PB2(High -> ON)
+ *   Mode LED        = PB1(High -> ON)
+ *   Lfsend LED      = PD3(High -> ON)
+ *   Out LED         = PB3(High -> ON)
+ *   125K carrier    = PB0 (TIM1_CH1N)using TIM1_CH1N PWM to create in lf_send.c file 
+ *   125K_EN gate    = PE5(High -> ON)
  */
 
 #include "stm8s.h"
 #include "stm8s_conf.h"
 #include "LF_Send.h"
 
-/* ================= GPIO 宏定義 ================= */
+/* GPIO macro definitions */
 
-/* Buzzer：如果 105 沒接，可以先留空或之後再改 */
+/* Buzzer */
 #define BP_ON()              (GPIOD->ODR |=  (1<<4))
 #define BP_OFF()             (GPIOD->ODR &= ~(1<<4))
 
-/* Learn LED = PB2，高亮 */
+/* Learn LED = PB2*/
 #define Learn_LED_ON()       (GPIOB->ODR |=  (1<<2))
 #define Learn_LED_OFF()      (GPIOB->ODR &= ~(1<<2))
 
-/* Mode LED = PB1，高亮 */
+/* Mode LED = PB1*/
 #define Mode_LED_ON()        (GPIOB->ODR |=  (1<<1))
 #define Mode_LED_OFF()       (GPIOB->ODR &= ~(1<<1))
 
-/* Lfsend LED = PD3，高亮 */
+/* Lfsend LED = PD3*/
 #define Lfsend_LED_ON()      (GPIOD->ODR |=  (1<<3))
 #define Lfsend_LED_OFF()     (GPIOD->ODR &= ~(1<<3))
 
-/* Out LED = PB3，高亮 */
+/* Out LED = PB3*/
 #define Out_LED_ON()         (GPIOB->ODR |=  (1<<3))
 #define Out_LED_OFF()        (GPIOB->ODR &= ~(1<<3))
 
-/* 按鍵：高 = 按下 */
+/* KEY */
 #define Learn_Key_Pressed()  (GPIO_ReadInputPin(GPIOA, GPIO_PIN_2) != RESET)
 #define Mode_Key_Pressed()   (GPIO_ReadInputPin(GPIOB, GPIO_PIN_4) != RESET)
 #define Lfsend_Key_Pressed() (GPIO_ReadInputPin(GPIOB, GPIO_PIN_5) != RESET)
 
-/* RF DO：Active Low（改成 PD0） */
+/* RF DO：Active Low */
 #define RF_DATA_LOW()        (GPIO_ReadInputPin(GPIOD, GPIO_PIN_0) == RESET)
 
 /* RF SHDN：PD2，Low = Enable */
 #define RF_SHDN_ENABLE()     GPIO_WriteLow (GPIOD, GPIO_PIN_2)
 #define RF_SHDN_DISABLE()    GPIO_WriteHigh(GPIOD, GPIO_PIN_2)
 
-/* 125K EN：PE5，高啟動（ASK gate） */
+/* 125K EN：PE5 (ASK gate) */
 #define LF_EN_ON()           GPIO_WriteHigh(GPIOE, GPIO_PIN_5)
 #define LF_EN_OFF()          GPIO_WriteLow (GPIOE, GPIO_PIN_5)
 
-/* ================= 常數 & 全域變數 ================= */
+/* ================= Constants & Global Variables ================= */
 
 #define  TRUE        1
 #define  FALSE       0
-#define  TOUT        600           /* Out LED 維持時間 (10ms 為單位) */
+#define  TOUT        600           /* Out LED Duration (10ms / time ) */
 
 #define RF_NUM       5
 #define RF_Byte_LEN  3
 #define RF_LEN       24
 
 #define MCU_REG_NUM      26
-#define RF_ACTIVE_LOW    1         /* idle 高、資料為低脈波 */
+#define RF_ACTIVE_LOW    1         
+/* Signal polarity:
+ * Idle = High
+ * Data = Low pulse
+ */
+
 
 unsigned char RFFull = 0;
 unsigned char RFBit;
@@ -91,11 +96,14 @@ unsigned char Time_Nms = 0;
 
 unsigned char User_LF_Send = 0;
 
-/* 前置宣告 */
+
 void Key_Scan(void);
 void RF_Remote(void);
 
-/* ================= CRC Table & 預設參數 ================= */
+/* =========================================================
+ * CRC Table & Default Parameters
+ * ========================================================= */
+
 
 const unsigned int wCRCTalbeAbs[] =
 {
@@ -113,7 +121,10 @@ const uint8_t mcu_user_config[MCU_REG_NUM] =
     0x00,0x00,
 };
 
-/* ================= 函式實作 ================= */
+/* =========================================================
+ * Function Implementations
+ * ========================================================= */
+
 
 unsigned int GetCRC16(unsigned char *pchMsg, unsigned char wDataLen)
 { 
@@ -136,7 +147,8 @@ void SystemClock_Init(void)
     while (CLK_GetFlagStatus(CLK_FLAG_HSIRDY) == RESET);
     CLK_HSIPrescalerConfig(CLK_PRESCALER_HSIDIV1);
 
-    /* 建議把 TIM1/TIM2 clock 打開（保險） */
+    /* Enable TIM1/TIM2 clocks as a precaution */
+
     CLK_PeripheralClockConfig(CLK_PERIPHERAL_TIMER1, ENABLE);
     CLK_PeripheralClockConfig(CLK_PERIPHERAL_TIMER2, ENABLE);
 }
@@ -198,7 +210,10 @@ void BEEP_BEEP(void)
     }
 }
 
-/* ================= 初始化 ================= */
+/* =========================================================
+ * Initialization
+ * ========================================================= */
+
 
 void InIt(void)
 {
@@ -221,7 +236,7 @@ void InIt(void)
     GPIO_Init(GPIOD, GPIO_PIN_0, GPIO_MODE_IN_PU_NO_IT);      /* RF DO */
     GPIO_Init(GPIOD, GPIO_PIN_2, GPIO_MODE_OUT_PP_HIGH_FAST); /* SHDN，預設關閉 */
 
-    /* Keys：高有效 */
+    /* Keys*/
     GPIO_Init(GPIOA, GPIO_PIN_2, GPIO_MODE_IN_PU_NO_IT);      /* Learn Key */
     GPIO_Init(GPIOB, GPIO_PIN_4, GPIO_MODE_IN_PU_NO_IT);      /* Mode Key  */
     GPIO_Init(GPIOB, GPIO_PIN_5, GPIO_MODE_IN_PU_NO_IT);      /* Lfsend Key*/
@@ -230,7 +245,7 @@ void InIt(void)
     TIM2_Init();
     LF_ClockOccurs(125);                                      /* 125k carrier */
 
-    /* 啟動 RF 接收器 */
+    /* Enable RF receiver */
     RF_SHDN_ENABLE();
 
     Write_EEpeomData();
@@ -240,7 +255,10 @@ void InIt(void)
     enableInterrupts();
 }
 
-/* ================= RF_Remote（照你 103 版移植） ================= */
+/* =========================================================
+ * RF_Remote (ported from STM8S103 version)
+ * ========================================================= */
+
 
 void RF_Remote(void)                  
 {
@@ -345,33 +363,44 @@ void RF_Remote(void)
     }
 }
 
-/* ================= Key_Scan（改成高有效版本） ================= */
+/* ================= Key_Scan (active-high version) ================= */
 
-void Key_Scan(void)           
+void Key_Scan(void)
 {
     unsigned char i;
 
-    /* Learn Key：短按進 Learn，長按清 EEPROM */
-    if (Learn_Key_Pressed()) 
+    /* -------------------------------------------------------------
+     * Learn Key:
+     *  - Short press: enter Learn mode
+     *  - Long press : clear DATA EEPROM (RF pairing buffer)
+     * ------------------------------------------------------------- */
+    if (Learn_Key_Pressed())
     {
         CLearn++;
+
+        /* Debounce / short-press threshold */
         if (CLearn == 10)
         {
             Learn_LED_ON();
             FLearn  = 1;
-            CTLearn = 1000;
+            CTLearn = 1000;     /* Learn mode timeout counter */
         }
 
+        /* Long-press threshold: erase pairing data */
         if (CLearn == 500)
         {
             Learn_LED_OFF();
             FLearn = 0;
 
+            /* Clear RF pairing data stored in DATA EEPROM */
             FLASH_Unlock(FLASH_MEMTYPE_DATA);
             for (i = 0; i < RF_NUM * RF_Byte_LEN + 1; i++)
+            {
                 FLASH_ProgramByte(0x00004000 + SET_BUFF_MAX + i, 0);
+            }
             FLASH_Lock(FLASH_MEMTYPE_DATA);
 
+            /* Reset counter and wait for key release to prevent re-trigger */
             CLearn = 0;
             while (Learn_Key_Pressed());
         }
@@ -380,7 +409,8 @@ void Key_Scan(void)
     {
         CLearn = 0;
     }
-    
+
+    /* Learn mode timeout handling */
     if (CTLearn > 0)
     {
         CTLearn--;
@@ -389,9 +419,13 @@ void Key_Scan(void)
             Learn_LED_OFF();
             FLearn = 0;
         }
-    }  
-    
-    /* Mode Key：短按切換 LF_ENABLE */
+    }
+
+    /* -------------------------------------------------------------
+     * Mode Key:
+     *  - On new press (rising edge), toggle LF_ENABLE
+     *  - Update Mode LED and store LF_ENABLE to DATA EEPROM
+     * ------------------------------------------------------------- */
     if (Mode_Key_Pressed())
     {
         if (!Mode_Key_Old)
@@ -401,14 +435,15 @@ void Key_Scan(void)
             if (LF_ENABLE == 0)
             {
                 LF_ENABLE = 1;
-                Mode_LED_OFF();
+                Mode_LED_OFF();     /* NOTE: LED polarity depends on hardware */
             }
             else
             {
                 LF_ENABLE = 0;
-                Mode_LED_ON();
+                Mode_LED_ON();      /* NOTE: LED polarity depends on hardware */
             }
 
+            /* Persist LF_ENABLE setting */
             FLASH_Unlock(FLASH_MEMTYPE_DATA);
             FLASH_ProgramByte(0x00004000 + 12, LF_ENABLE);
             FLASH_Lock(FLASH_MEMTYPE_DATA);
@@ -418,15 +453,20 @@ void Key_Scan(void)
     {
         Mode_Key_Old = 0;
     }
-    
-    /* Lfsend Key：LF_ENABLE=0 時按一下送一次 LF */
+
+    /* -------------------------------------------------------------
+     * Lfsend Key:
+     *  - When LF_ENABLE == 0, a single press triggers one LF send
+     * ------------------------------------------------------------- */
     if (Lfsend_Key_Pressed())
     {
         if (!Send_Key_Old)
         {
             Send_Key_Old = 1;
             if (LF_ENABLE == 0)
-                User_LF_Send = 1;
+            {
+                User_LF_Send = 1;   /* Request one LF transmit */
+            }
         }
     }
     else
@@ -435,11 +475,17 @@ void Key_Scan(void)
     }
 }
 
+
 /* ================= TIM2 Update ISR ================= */
 
 @far @interrupt void pc_irqhandler(void)
 {
+    /* Clear TIM2 update interrupt flag */
     TIM2_ClearITPendingBit(TIM2_IT_UPDATE);
+
+    /* -------------------------------------------------------------
+     * Time base: 1 ms tick and 10 ms tick
+     * ------------------------------------------------------------- */
     Time_1ms++;
 
     if (Time_1ms >= 10)
@@ -447,26 +493,36 @@ void Key_Scan(void)
         Time_1ms = 0;
         Time_Nms++;
 
+        /* LF send timer countdown (clamp to 0) */
         if ((LF_ENABLE == 1) && (LF_Send_Tim > 0))
-            LF_Send_Tim--; 
+            LF_Send_Tim--;
         else
             LF_Send_Tim = 0;
     }
 
+    /* If an RF frame is already captured, skip decoding */
     if (RFFull)
-        return; 
+        return;
 
+    /* -------------------------------------------------------------
+     * RF OOK decoding:
+     * - Measure LOW pulse width (LL_w) while RF_DATA is low
+     * - On rising edge (LOW -> HIGH), interpret the LOW width
+     * ------------------------------------------------------------- */
     if (RF_DATA_LOW())
-    {           /* Low 區間累積 */
+    {
+        /* Accumulate LOW width in ticks */
         LL_w++;
-        RFBit = 0;
+        RFBit = 0;   /* Mark current level as LOW */
     }
     else
-    {           /* High 邊緣：處理剛過去的 Low 寬度 */
+    {
+        /* Rising edge: process the LOW width that just ended */
         if (!RFBit)
         {
             if (!First_flag)
             {
+                /* Detect sync/preamble LOW width */
                 if ((LL_w > 40) && (LL_w < 60))
                 {
                     First_flag = 1;
@@ -476,29 +532,34 @@ void Key_Scan(void)
             }
             else
             {
+                /* Decode data bits by LOW width */
                 if ((LL_w > 3) && (LL_w <= 7))
                 {
+                    /* Bit '1' */
                     if (BitCount < RF_LEN)
                     {
-                        Buff_B[BitCount>>3] <<= 1;
-                        Buff_B[BitCount>>3] |= 0x01;
+                        Buff_B[BitCount >> 3] <<= 1;
+                        Buff_B[BitCount >> 3] |= 0x01;
                         BitCount++;
                     }
                 }
                 else if ((LL_w >= 8) && (LL_w < 13))
                 {
+                    /* Bit '0' */
                     if (BitCount < RF_LEN)
                     {
-                        Buff_B[BitCount>>3] <<= 1;
+                        Buff_B[BitCount >> 3] <<= 1;
                         BitCount++;
                     }
                 }
                 else
                 {
+                    /* Invalid width: reset decoder state */
                     First_flag = 0;
                     BitCount   = 0;
                 }
 
+                /* Frame complete */
                 if (BitCount >= RF_LEN)
                 {
                     BitCount   = 0;
@@ -506,10 +567,13 @@ void Key_Scan(void)
                     RFFull     = 1;
                 }
             }
+
+            /* Reset LOW width counter after processing */
             LL_w = 0;
         }
-        RFBit = 1;
-    }  
+
+        RFBit = 1;   /* Mark current level as HIGH */
+    }
 }
 
 /* ================= main ================= */

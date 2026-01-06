@@ -22,20 +22,22 @@ void Delay_us(unsigned int nus)
         __asm("nop");
 }
 
-/* ===== 125kHz Carrier：改成 TIM1_CH1N → PB0 ===== */
-/* legacy name：保留給你既有 main.c 呼叫 */
+/* ===== 125 kHz Carrier: TIM1_CH1N output on PB0 ===== */
+/* Legacy function name is kept for compatibility with existing main.c */
+
 /**
- * @brief  產生指定頻率(kHz)的 TIM1 PWM，50% duty，只輸出 CH1N
- * @param  lf_khz: 例如 125 代表 125kHz
+ * @brief Generate TIM1 PWM output with specified frequency (kHz),
+ *        50% duty cycle, CH1N output only
+ * @param LF_Pll Carrier frequency in kHz (e.g. 125 = 125 kHz)
  */
 void LF_ClockOccurs(unsigned char LF_Pll)
 {
-    uint32_t tim_clk_hz = 16000000UL;                // TIM1 clock (假設16MHz)
-    uint32_t target_hz  = (uint32_t)LF_Pll * 1000UL; // LF_Pll 代表 kHz
+    uint32_t tim_clk_hz = 16000000UL;                // TIM1 clock (16MHz)
+    uint32_t target_hz  = (uint32_t)LF_Pll * 1000UL;
     uint16_t arr;
     uint16_t ccr;
 
-    if (LF_Pll == 0u) return;                        // 避免除以0
+    if (LF_Pll == 0u) return;                        // avoid divide-by-zero
 
     // ARR = (Fclk / Fout) - 1
     arr = (uint16_t)((tim_clk_hz / target_hz) - 1UL);
@@ -108,8 +110,6 @@ void LF_PLL_SET(unsigned char LF_Pll)
     TIM1_Cmd(ENABLE);
 }
 
-
-/* ======== 其餘：你原本 lf_send.c 保留不動 ======== */
 static void Out_125K(unsigned int tim, unsigned char LF_Send_CHx)
 {
 	CH1_GPIO_OPEN;
@@ -163,7 +163,7 @@ void Timecalculate(void)
         else
             Carrier_Time =  3000;    //us	       
     }    
-    else                // ON/OFF 模式
+    else                // ON/OFF mode
     {
         if((LF_PLL >= 15) && (LF_PLL <= 23))
         {

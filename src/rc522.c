@@ -74,20 +74,24 @@ void Reset_RC522(void)
   PcdReset();
   PcdAntennaOff();  
   PcdAntennaOn();    
-}                         
+}   
+
 /////////////////////////////////////////////////////////////////////
-//功 能：尋卡
-//參數說明: req_code[IN]:尋卡方式
-// 0x52 = 尋感應區內所有符合14443A標準的卡片
-// 0x26 = 尋找未進入休眠狀態的卡片
-// pTagType[OUT]：卡片類型代碼
-// 0x4400 = Mifare_UltraLight
-// 0x0400 = Mifare_One(S50)
-// 0x0200 = Mifare_One(S70)
-// 0x0800 = Mifare_Pro(X)
-// 0x4403 = Mifare_DESFire
-//返 回: 成功返回MI_OK
+// Function: Card request (REQA / WUPA)
+// Parameters:
+//   req_code [IN] : Request command
+//     0x52 = WUPA: Request all ISO/IEC 14443A cards in the field (including HALT cards)
+//     0x26 = REQA: Request cards that are not in HALT state
+//   pTagType [OUT]: Card type code (ATQA)
+//     0x4400 = Mifare_UltraLight
+//     0x0400 = Mifare_One (S50)
+//     0x0200 = Mifare_One (S70)
+//     0x0800 = Mifare_Pro (X)
+//     0x4403 = Mifare_DESFire
+// Return:
+//   MI_OK on success
 /////////////////////////////////////////////////////////////////////
+
 char PcdRequest(u8   req_code,u8 *pTagType)
 {
 	char   status;  
@@ -114,10 +118,12 @@ char PcdRequest(u8   req_code,u8 *pTagType)
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：防衝撞
-//參數說明: pSnr[OUT]:卡片序號，4位元組
-//返 回: 成功返回MI_OK
-/////////////////////////////////////////////////////////////////////  
+// Function: Anti-collision (UID acquisition)
+// Parameters:
+//   pSnr [OUT]: Card UID (4 bytes)
+// Return:
+//   MI_OK on success
+/////////////////////////////////////////////////////////////////////
 char PcdAnticoll(u8 *pSnr)
 {
     char   status;
@@ -151,9 +157,11 @@ char PcdAnticoll(u8 *pSnr)
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：選定卡片
-//參數說明: pSnr[IN]:卡片序號，4位元組
-//返 回: 成功返回MI_OK
+// Function: Select card (UID selection)
+// Parameters:
+//   pSnr [IN]: Card UID (4 bytes)
+// Return:
+//   MI_OK on success
 /////////////////////////////////////////////////////////////////////
 char PcdSelect(u8 *pSnr)
 {
@@ -185,15 +193,17 @@ char PcdSelect(u8 *pSnr)
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：驗證卡片密碼
-//參數說明: auth_mode[IN]: 密碼驗證模式
-// 0x60 = 驗證A金鑰
-// 0x61 = 驗證B金鑰
-// addr[IN]：區塊位址
-// pKey[IN]：密碼
-// pSnr[IN]：卡片序號，4位元組
-//返 回: 成功返回MI_OK
-/////////////////////////////////////////////////////////////////////               
+// Function: MIFARE Classic authentication
+// Parameters:
+//   auth_mode [IN]: Authentication command
+//     0x60 = Key A authentication
+//     0x61 = Key B authentication
+//   addr [IN]: Block address
+//   pKey [IN]: 6-byte secret key
+//   pSnr [IN]: Card UID (4 bytes)
+// Return:
+//   MI_OK on success
+/////////////////////////////////////////////////////////////////////
 char PcdAuthState(u8 auth_mode,u8 addr,u8 *pKey,u8 *pSnr)
 {
     char   status;
@@ -202,10 +212,6 @@ char PcdAuthState(u8 auth_mode,u8 addr,u8 *pKey,u8 *pSnr)
 
     ucComMF522Buf[0] = auth_mode;
     ucComMF522Buf[1] = addr;
-//    for (i=0; i<6; i++)
-//    {    ucComMF522Buf[i+2] = *(pKey+i);   }
-//    for (i=0; i<6; i++)
-//    {    ucComMF522Buf[i+8] = *(pSnr+i);   }
     memcpy(&ucComMF522Buf[2], pKey, 6); 
     memcpy(&ucComMF522Buf[8], pSnr, 4); 
     
@@ -217,10 +223,12 @@ char PcdAuthState(u8 auth_mode,u8 addr,u8 *pKey,u8 *pSnr)
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：讀取M1卡一塊數據
-//參數說明: addr[IN]：區塊位址
-// p [OUT]：讀出的數據，16位元組
-//返 回: 成功返回MI_OK
+// Function: Read MIFARE Classic (M1) block
+// Parameters:
+//   addr [IN] : Block address
+//   p    [OUT]: Output data buffer (16 bytes)
+// Return:
+//   MI_OK on success
 ///////////////////////////////////////////////////////////////////// 
 char PcdRead(u8   addr,u8 *p )
 {
@@ -246,11 +254,13 @@ char PcdRead(u8   addr,u8 *p )
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：寫資料到M1卡一塊
-//參數說明: addr[IN]：區塊位址
-// p [IN]：寫入的數據，16位元組
-//返 回: 成功返回MI_OK
-/////////////////////////////////////////////////////////////////////                  
+// Function: Write MIFARE Classic (M1) block
+// Parameters:
+//   addr [IN] : Block address
+//   p    [IN] : Input data buffer (16 bytes)
+// Return:
+//   MI_OK on success
+/////////////////////////////////////////////////////////////////////
 char PcdWrite(u8 addr,u8 *p )
 {
     char   status;
@@ -284,8 +294,9 @@ char PcdWrite(u8 addr,u8 *p )
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：指令卡進入休眠狀態
-//返 回: 成功返回MI_OK
+// Function: Halt card (ISO/IEC 14443A HALT)
+// Return:
+//   MI_OK on success
 /////////////////////////////////////////////////////////////////////
 char PcdHalt(void)
 {
@@ -303,7 +314,7 @@ char PcdHalt(void)
 }
 
 /////////////////////////////////////////////////////////////////////
-//用MF522计算CRC16函数
+// Function: Calculate CRC16 using the MFRC522 hardware CRC unit
 /////////////////////////////////////////////////////////////////////
 void CalulateCRC(u8 *pIn ,u8   len,u8 *pOut )
 {
@@ -326,39 +337,39 @@ void CalulateCRC(u8 *pIn ,u8   len,u8 *pOut )
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：重設RC522
-//返 回: 成功返回MI_OK
+// Function: Reset the MFRC522
+// Return:
+//   MI_OK on success
 /////////////////////////////////////////////////////////////////////
 char PcdReset(void)
 {
-	//PORTD|=(1<<RC522RST);
-	//SET_RC522RST;
+
     GPIO_HIGH(RC522RST_GPIO_PORT,RC522RST_GPIO_PIN);
     delay_ns(10);
-	//PORTD&=~(1<<RC522RST);
-	//CLR_RC522RST;
+
     GPIO_LOW(RC522RST_GPIO_PORT,RC522RST_GPIO_PIN);
     delay_ns(10);
-	//PORTD|=(1<<RC522RST);
-	//SET_RC522RST;
+
     GPIO_HIGH(RC522RST_GPIO_PORT,RC522RST_GPIO_PIN);
     delay_ns(10);
     WriteRawRC(CommandReg,PCD_RESETPHASE);
     WriteRawRC(CommandReg,PCD_RESETPHASE);
     delay_ns(10);
     
-    WriteRawRC(ModeReg,0x3D);            //和Mifare卡通讯，CRC初始值0x6363
+    WriteRawRC(ModeReg,0x3D);            // MIFARE card communication, CRC initial value set to 0x6363
+
     WriteRawRC(TReloadRegL,30);           
     WriteRawRC(TReloadRegH,0);
     WriteRawRC(TModeReg,0x8D);
     WriteRawRC(TPrescalerReg,0x3E);
 	
-    WriteRawRC(TxAutoReg,0x40);//必须要
+    WriteRawRC(TxAutoReg,0x40);//// This step must not be omitted
    
     return MI_OK;
 }
+
 //////////////////////////////////////////////////////////////////////
-//设置RC632的工作方式 
+// Function: Set RC632 operating mode
 //////////////////////////////////////////////////////////////////////
 char M500PcdConfigISOType(u8   type)
 {
@@ -382,10 +393,13 @@ char M500PcdConfigISOType(u8   type)
    
    return MI_OK;
 }
+
 /////////////////////////////////////////////////////////////////////
-//功 能：讀RC532暫存器
-//參數說明：Address[IN]:暫存器位址
-//返 回：讀出的值
+// Function: Read a register from RC532
+// Parameters:
+//   Address [IN]: Register address
+// Return:
+//   Register value
 /////////////////////////////////////////////////////////////////////
 u8 ReadRawRC(u8   Address)
 {
@@ -403,9 +417,10 @@ u8 ReadRawRC(u8   Address)
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：寫RC632暫存器
-//參數說明：Address[IN]:暫存器位址
-// value[IN]:寫入的值
+// Function: Write a register to RC632
+// Parameters:
+//   Address [IN]: Register address
+//   value   [IN]: Register value
 /////////////////////////////////////////////////////////////////////
 void WriteRawRC(u8   Address, u8   value)
 {  
@@ -420,10 +435,12 @@ void WriteRawRC(u8   Address, u8   value)
     GPIO_HIGH(RC522NSS_GPIO_PORT,RC522NSS_GPIO_PIN);
 
 }
+
 /////////////////////////////////////////////////////////////////////
-//功 能：置RC522暫存器位
-//參數說明：reg[IN]:暫存器位址
-// mask[IN]:置位值
+// Function: Set bit mask in RC522 register
+// Parameters:
+//   reg  [IN]: Register address
+//   mask [IN]: Bit mask
 /////////////////////////////////////////////////////////////////////
 void SetBitMask(u8   reg,u8   mask)  
 {
@@ -433,9 +450,10 @@ void SetBitMask(u8   reg,u8   mask)
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：清RC522暫存器位
-//參數說明：reg[IN]:暫存器位址
-// mask[IN]:清位元值
+// Function: Clear bit mask in RC522 register
+// Parameters:
+//   reg  [IN]: Register address
+//   mask [IN]: Bit mask
 /////////////////////////////////////////////////////////////////////
 void ClearBitMask(u8   reg,u8   mask)  
 {
@@ -445,12 +463,13 @@ void ClearBitMask(u8   reg,u8   mask)
 } 
 
 /////////////////////////////////////////////////////////////////////
-//功 能：透過RC522及ISO14443卡通訊
-//參數說明：Command[IN]:RC522指令字
-// pIn [IN]:透過RC522傳送到卡片的數據
-// InLenByte[IN]:傳送資料的位元組長度
-// pOut [OUT]:接收到的卡片回傳數據
-// *pOutLenBit[OUT]:傳回資料的位元長度
+// Function: RC522 communication with ISO/IEC 14443 card
+// Parameters:
+//   Command     [IN] : RC522 command code
+//   pIn         [IN] : Transmit data buffer
+//   InLenByte   [IN] : Transmit length in bytes
+//   pOut        [OUT]: Receive data buffer
+//   *pOutLenBit [OUT]: Receive length in bits
 /////////////////////////////////////////////////////////////////////
 char PcdComMF522(u8   Command, 
                  u8 *pIn , 
@@ -479,9 +498,9 @@ char PcdComMF522(u8   Command,
     }
    
     WriteRawRC(ComIEnReg,irqEn|0x80);
-    ClearBitMask(ComIrqReg,0x80);	//清所有中断位
+    ClearBitMask(ComIrqReg,0x80);	// Clear all interrupt status flags
     WriteRawRC(CommandReg,PCD_IDLE);
-    SetBitMask(FIFOLevelReg,0x80);	 	//清FIFO
+    SetBitMask(FIFOLevelReg,0x80);	 	// Clear FIFO
     
     for (i=0; i<InLenByte; i++)
     {   
@@ -492,10 +511,11 @@ char PcdComMF522(u8   Command,
     
     if (Command == PCD_TRANSCEIVE)
     {    
-      SetBitMask(BitFramingReg,0x80);           //開始傳送
+      SetBitMask(BitFramingReg,0x80);           // Start transmission
     }	 
     										 
-    //i = 600;//根據時脈頻率調整，操作M1卡最大等待時間25ms
+    //i = 600;// Adjust according to clock frequency; maximum wait time for MIFARE Classic (M1) card operation is 25 ms
+
     i = 10000;
     do 
     {
@@ -554,9 +574,11 @@ char PcdComMF522(u8   Command,
 }
 
 /////////////////////////////////////////////////////////////////////
-//關閉天線 
-//每次啟動或關閉天險發射之間應至少有1ms的間隔
+// Enable antenna
+// There must be at least a 1 ms interval between enabling and disabling
+// the antenna transmission
 /////////////////////////////////////////////////////////////////////
+
 void PcdAntennaOn(void)
 {
     u8   i;
@@ -569,7 +591,7 @@ void PcdAntennaOn(void)
 
 
 /////////////////////////////////////////////////////////////////////
-//關閉天線
+// Disable antenna
 /////////////////////////////////////////////////////////////////////
 void PcdAntennaOff(void)
 {
@@ -577,14 +599,16 @@ void PcdAntennaOff(void)
 }
 
 /////////////////////////////////////////////////////////////////////
-//功 能：扣款與儲值
-//參數說明: dd_mode[IN]：命令字
-// 0xC0 = 扣款
-// 0xC1 = 儲值
-// addr[IN]：錢包位址
-// pValue[IN]：4位元組增(減)值，低位在前
-//返 回: 成功返回MI_OK
-/////////////////////////////////////////////////////////////////////                 
+// Function: Debit / Credit (Value Block operation)
+// Parameters:
+//   dd_mode [IN]: Command code
+//     0xC0 = Debit
+//     0xC1 = Credit
+//   addr    [IN]: Value block address
+//   pValue  [IN]: 4-byte increment/decrement value (LSB first)
+// Return:
+//   MI_OK on success
+/////////////////////////////////////////////////////////////////////
 char PcdValue(u8 dd_mode,u8 addr,u8 *pValue)
 {
     char status;
