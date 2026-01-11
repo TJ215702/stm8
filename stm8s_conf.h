@@ -5,11 +5,23 @@
 #include "stm8s.h"
 
 
+
 #include "stm8s_gpio.h"
 #include "stm8s_clk.h"
+//#include "stm8s_tim1.h"
+//#include "stm8s_tim2.h"
 #include "stm8s_tim4.h"
-#include "stm8s_uart1.h"
+#include "stm8s_uart2.h"
 #include "stm8s_spi.h"
+//#include "stm8s_rst.h"
+
+//#include "stm8s103_spi.h"
+//#include "lcd_i2c.h"
+//#include "stm8s_max72xx.h"
+#include "stm8s_exti.h"
+#include "stm8s_flash.h"
+
+
 
 /* Exported macro ------------------------------------------------------------*/
 #ifdef  USE_FULL_ASSERT

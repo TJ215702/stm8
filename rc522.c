@@ -16,17 +16,18 @@
 #include "stm8s.h"
 #include <string.h>
 
-
-
+unsigned char CT[2];
+unsigned char SN[4];
+unsigned char key[6] = {0xff,0xff,0xff,0xff,0xff,0xff};
 
 void delay_ns(u32 ns)
 {
   u32 i;
   for(i=0;i<ns;i++)
   {
-    __asm("nop");
-     __asm("nop");
-     __asm("nop");
+		__asm("nop");
+		__asm("nop");
+		__asm("nop");
   }
 }
 
@@ -626,4 +627,53 @@ char PcdValue(u8 dd_mode,u8 addr,u8 *pValue)
         {   status = MI_ERR;   }
     }
     return status;
+}
+
+
+void Hex2String(u8 hex,u8 *str)
+{
+  str[0] = (hex / 100) + '0';
+  str[1] = (hex % 100 / 10) + '0';
+  str[2] = (hex % 10) + '0';
+}
+
+void cardNo2String(u8 *cardNo, u8 *str)
+{
+    u8 Count = 0;
+    for(Count = 0; Count < 4; Count++)
+    {
+        Hex2String(cardNo[Count], str + Count * 4);
+        if(Count == 3)
+        {
+          str[15] = '\n';
+        }
+        else
+        {
+          str[Count * 4 + 3] = ':';
+        }
+    }
+}
+
+void showcard(u8 Tx_Buffer[64],u8 *set)
+{
+	unsigned char status;
+	status = PcdRequest(PICC_REQIDL,CT); 
+	if (status==MI_OK)
+		{
+			status = PcdAnticoll(SN); 
+		}  
+	if (status==MI_OK)
+		{
+			status = PcdSelect(SN);
+		}  
+	if (status==MI_OK)
+		{
+			cardNo2String(SN, Tx_Buffer);
+			*set=1;
+			status=PcdAuthState(0x60,3,key,SN) ;  
+		}  
+	 if (status==MI_OK)
+		{
+			status = PcdHalt();
+		}
 }

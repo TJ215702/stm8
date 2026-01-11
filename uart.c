@@ -6,12 +6,12 @@
 **********************************************************************************/
 
 #include "uart.h"
-#include "stm8s_uart1.h"
+#include "stm8s_uart2.h"
 #include "stm8s_clk.h"
 
 /* ********************************************
-UART1  configured as follow:
-  - BaudRate = 115200 baud  
+UART2  configured as follow:
+  - BaudRate = 9600 baud  
   - Word Length = 8 Bits
   - One Stop Bit
   - No parity
@@ -21,35 +21,35 @@ UART1  configured as follow:
 *********************************************/
 void Uart_Init(void)
 {
-    UART1_DeInit();
-    UART1_Init((u32)9600, UART1_WORDLENGTH_8D, UART1_STOPBITS_1, \
-    UART1_PARITY_NO , UART1_SYNCMODE_CLOCK_DISABLE , UART1_MODE_TXRX_ENABLE);
-    UART1_ITConfig(UART1_IT_RXNE_OR,ENABLE  );
-    UART1_Cmd(ENABLE );
+    UART2_DeInit();
+    UART2_Init((u32)9600, UART2_WORDLENGTH_8D, UART2_STOPBITS_1, \
+    UART2_PARITY_NO , UART2_SYNCMODE_CLOCK_DISABLE , UART2_MODE_TXRX_ENABLE);
+    UART2_ITConfig(UART2_IT_RXNE_OR,ENABLE  );
+    UART2_Cmd(ENABLE );
   
 }
 
-void UART1_SendByte(u8 data)
+void UART2_SendByte(u8 data)
 {
-    UART1_SendData8((unsigned char)data);
+    UART2_SendData8((unsigned char)data);
   /* Loop until the end of transmission */
-  while (UART1_GetFlagStatus(UART1_FLAG_TXE) == RESET);
+  while (UART2_GetFlagStatus(UART2_FLAG_TXE) == RESET);
 }
 
-void UART1_SendString(u8* Data,u16 len)
+void UART2_SendString(u8* Data,u16 len)
 {
   u16 i=0;
   for(;i<len;i++)
-    UART1_SendByte(Data[i]);
+    UART2_SendByte(Data[i]);
   
 }
 
-u8 UART1_ReceiveByte(void)
+u8 UART2_ReceiveByte(void)
 {
-     u8 USART1_RX_BUF; 
-     while (UART1_GetFlagStatus(UART1_FLAG_RXNE) == RESET);
-     USART1_RX_BUF=UART1_ReceiveData8();
-     return  USART1_RX_BUF;
+     u8 USART2_RX_BUF; 
+     while (UART2_GetFlagStatus(UART2_FLAG_RXNE) == RESET);
+     USART2_RX_BUF=UART2_ReceiveData8();
+     return  USART2_RX_BUF;
     
 }
 
