@@ -20,7 +20,7 @@ struct interrupt_vector {
 extern void _stext();     /* startup routine */
 
 extern @far @interrupt void Tim4Update_isr(void);
-
+extern @far @interrupt void EXTI_PORTB_IRQHandler(void); //PB4 interrupt
 
 struct interrupt_vector const _vectab[] = {
 	{0x82, (interrupt_handler_t)_stext}, /* reset */
@@ -29,7 +29,7 @@ struct interrupt_vector const _vectab[] = {
 	{0x82, NonHandledInterrupt}, /* irq1  */
 	{0x82, NonHandledInterrupt}, /* irq2  */
 	{0x82, NonHandledInterrupt}, /* irq3  */
-	{0x82, NonHandledInterrupt}, /* irq4  */
+	{0x82, (interrupt_handler_t)EXTI_PORTB_IRQHandler}, /* irq4  */
 	{0x82, NonHandledInterrupt}, /* irq5  */
 	{0x82, NonHandledInterrupt}, /* irq6  */
 	{0x82, NonHandledInterrupt}, /* irq7  */
