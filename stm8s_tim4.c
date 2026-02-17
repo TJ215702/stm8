@@ -399,10 +399,10 @@ void TIM4_ClearITPendingBit(TIM4_IT_TypeDef TIM4_IT)
   /* Clear the IT pending Bit */
   TIM4->SR1 = (uint8_t)(~TIM4_IT);
 }
-
+/*
 void TIM4_Init(void) {
 		TIM4_DeInit();
-    TIM4_TimeBaseInit(TIM4_PRESCALER_128, 125); 
+    TIM4_TimeBaseInit(TIM4_PRESCALER_128, 124); 
 		TIM4_ClearFlag(TIM4_FLAG_UPDATE);
     TIM4_ITConfig(TIM4_IT_UPDATE, DISABLE);
     TIM4_Cmd(ENABLE);
@@ -414,6 +414,23 @@ void Delay_ms(uint32_t ms) {
    
 	 while(ms--)
 		TIM4_Init();
+}
+*/
+
+void TIM4_Init(void)
+{
+    TIM4_TimeBaseInit(TIM4_PRESCALER_128, 124); 
+    TIM4_ITConfig(TIM4_IT_UPDATE, DISABLE);
+    TIM4_Cmd(ENABLE);
+}
+void Delay_ms(uint32_t ms)
+{
+    while(ms--)
+    {
+        TIM4_SetCounter(0);
+        TIM4_ClearFlag(TIM4_FLAG_UPDATE);
+        while(TIM4_GetFlagStatus(TIM4_FLAG_UPDATE) == RESET);
+    }
 }
 
 void Delay_ms_int(uint32_t ms) {

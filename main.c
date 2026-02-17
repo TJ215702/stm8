@@ -7,40 +7,46 @@
 #include "uart.h"
 #include "rc522.h"
 
-/* ================= IO 定義 ================= */
+enum pke_oper_state {
+    PKE_OPER_STA_POWER_OFF,
+    PKE_OPER_STA_POWER_ON,
+    PKE_OPER_STA_IDLE,
+    PKE_OPER_STA_LEARN,
+    PKE_OPER_STA_BUSY,
+    PKE_OPER_STA_ERROR
+};
 
-#define D3_ON()      GPIO_WriteHigh(GPIOD, GPIO_PIN_3)
-#define D3_OFF()     GPIO_WriteLow(GPIOD, GPIO_PIN_3)
+volatile struct PKE_config {
+    uint8_t key_num;
+    volatile uint8_t oper_state;
+    volatile uint8_t power_event_flag;
+    volatile uint8_t learn_event_flag;
+} TJTW_PKE;
 
-#define B3_ON()      GPIO_WriteHigh(GPIOB, GPIO_PIN_3)
-#define B3_OFF()     GPIO_WriteLow(GPIOB, GPIO_PIN_3)
 
-#define IN1_ON()     GPIO_WriteHigh(GPIOC, GPIO_PIN_2)
-#define IN1_OFF()    GPIO_WriteLow(GPIOC, GPIO_PIN_2)
 
-#define IN2_ON()     GPIO_WriteHigh(GPIOB, GPIO_PIN_0)
-#define IN2_OFF()    GPIO_WriteLow(GPIOB, GPIO_PIN_0)
+#define BR_LIGHT_ON()      GPIO_WriteHigh(GPIOD, GPIO_PIN_3)
+#define BR_LIGHT_OFF()     GPIO_WriteLow(GPIOD, GPIO_PIN_3)
 
-#define MOTOR_FWD()  do{IN1_ON(); IN2_OFF();}while(0)
-#define MOTOR_REV()  do{IN1_OFF(); IN2_ON();}while(0)
-#define MOTOR_STOP() do{IN1_OFF(); IN2_OFF();}while(0)
+#define BZ_ON()      GPIO_WriteHigh(GPIOB, GPIO_PIN_1)
+#define BZ_OFF()     GPIO_WriteLow(GPIOB, GPIO_PIN_1)
 
-/* PB4 */
-#define PB4_PRESSED() (GPIO_ReadInputPin(GPIOB, GPIO_PIN_4) == RESET)
+#define LP_RIGHT_ON()      GPIO_WriteHigh(GPIOB, GPIO_PIN_3)
+#define LP_RIGHT_OFF()     GPIO_WriteLow(GPIOB, GPIO_PIN_3)
+
+#define MOTOR2_ON()     GPIO_WriteHigh(GPIOC, GPIO_PIN_2)
+#define MOTOR2_OFF()    GPIO_WriteLow(GPIOC, GPIO_PIN_2)
+
+#define MOTOR1_ON()     GPIO_WriteHigh(GPIOB, GPIO_PIN_0)
+#define MOTOR1_OFF()    GPIO_WriteLow(GPIOB, GPIO_PIN_0)
+
+#define MOTOR_FWD()  do{MOTOR1_ON(); MOTOR2_OFF();}while(0)
+#define MOTOR_REV()  do{MOTOR1_OFF(); MOTOR2_ON();}while(0)
+#define MOTOR_STOP() do{MOTOR1_OFF(); MOTOR2_OFF();}while(0)
+
 u8 Tx_Buffer[] = "RFID---test";
 #define  BufferSize (countof(Tx_Buffer)-1)
 
-/* ================= Delay ================= */
-
-static void delay_ms(uint16_t ms)
-{
-    uint16_t i;
-    while(ms--)
-    {
-        for(i=0;i<600;i++)
-            __asm("nop");
-    }
-}
 
 void Clock_Config(void)
 {
@@ -57,32 +63,31 @@ void Clock_Config(void)
 
 }
 
-/* ================= GPIO ================= */
-
 static void GPIO_Config(void)
 {
-    /* D3 output */
-    GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
 
-    /* 這些腳位你說 init 就會設定好（但我仍保留 Init，且不在 main() 控） */
-    GPIO_Init(GPIOB, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST); /* B3 */
-    GPIO_Init(GPIOC, GPIO_PIN_2, GPIO_MODE_OUT_PP_LOW_FAST); /* IN1 */
-    GPIO_Init(GPIOB, GPIO_PIN_0, GPIO_MODE_OUT_PP_LOW_FAST); /* IN2 */
+    GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST); /* D3 BR_LIGHT */
+    GPIO_Init(GPIOB, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST); /* B3 LP_RIGHT */
+    GPIO_Init(GPIOC, GPIO_PIN_2, GPIO_MODE_OUT_PP_LOW_FAST); /* Motor IN2 */
+    GPIO_Init(GPIOB, GPIO_PIN_0, GPIO_MODE_OUT_PP_LOW_FAST); /* Motor IN1 */
+    GPIO_Init(GPIOB, GPIO_PIN_1, GPIO_MODE_OUT_PP_LOW_FAST); /* BZ */
 
-    /* PB4 input floating + interrupt (依你原碼不改) */
-    GPIO_Init(GPIOB, GPIO_PIN_4, GPIO_MODE_IN_FL_IT);
+    GPIO_Init(GPIOB, GPIO_PIN_4, GPIO_MODE_IN_PU_IT);  //POWER KEY
+    GPIO_Init(GPIOA, GPIO_PIN_2, GPIO_MODE_IN_FL_NO_IT); //LEARN KEY
+    GPIO_Init(GPIOB, GPIO_PIN_5, GPIO_MODE_IN_FL_NO_IT); //IGN KEY
 
-    /* 上電預設狀態：避免亂亮（不在 main() 做） */
-    D3_OFF();
-    B3_OFF();
+    /* init gpio status */
+    BR_LIGHT_OFF();
+    LP_RIGHT_OFF();
     MOTOR_STOP();
+    BZ_OFF();
 }
 
 /* ================= EXTI ================= */
 
 static void EXTI_Config(void)
 {
-    /* 依你原碼：PORTB rising edge */
+    /* PORTB rising edge */
     EXTI_SetExtIntSensitivity(EXTI_PORT_GPIOB,
                               EXTI_SENSITIVITY_RISE_ONLY);
 }
@@ -91,77 +96,82 @@ static void EXTI_Config(void)
 
 INTERRUPT_HANDLER(EXTI_PORTB_IRQHandler, 4)
 {
-    /* 空 ISR：只用來喚醒 HALT */
-}
-
-/* ================= HALT ================= */
-
-static void Enter_HALT(void)
-{
-    /* 3) 進入 HALT：全滅（此處只處理 D3，B3/馬達不在 main() 出現也不在這裡動） */
-    D3_OFF();
-
-    /* 避免按著就睡，先等放開 */
-    while(PB4_PRESSED());
-    delay_ms(20);
-
-    enableInterrupts();
-    halt();                 /* sleep */
-    /* 返回代表已喚醒 */
-
-    delay_ms(20);           /* stabilize */
+    TJTW_PKE.power_event_flag = 1;
 }
 
 main()
 {
-	/* D3 閃爍狀態（10ms tick, 50 次 = 0.5s） */
-    uint16_t d3_tick_10ms = 0;
-    uint8_t  d3_state = 0;      /* 0=OFF,1=ON */
-
-    /* Power key release-to-arm */
-    uint8_t pb_arm = 1;
-
+    int i;
+    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+    TJTW_PKE.power_event_flag = 0;
+    TJTW_PKE.learn_event_flag = 0;
     Clock_Config();
     GPIO_Config();
     EXTI_Config();
+    TIM4_DeInit();
+    TIM4_Init();
+    Uart_Init();
 
     enableInterrupts();
 
     while(1)
-    {
-        delay_ms(10);
+    {    
+        switch(TJTW_PKE.oper_state) {
+            case PKE_OPER_STA_POWER_OFF:
 
-        /* 1) Power button：醒著時按下 -> 進 HALT；HALT 期間靠 EXTI 喚醒 */
-        if(pb_arm && PB4_PRESSED())
-        {
-            pb_arm = 0;
+                enableInterrupts();
+                halt();
 
-            Enter_HALT();
+                if(TJTW_PKE.power_event_flag) {
+                    TJTW_PKE.power_event_flag = 0;
+                    if(GPIO_ReadInputPin(GPIOA, GPIO_PIN_2))
+                    {
+                        TJTW_PKE.oper_state = PKE_OPER_STA_LEARN;
+                    }
+                    else
+                    {
+                        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_ON;
+                    }
+                }
 
-            /* 4) 喚醒後重新計數：D3 從 OFF 開始，重新等滿 0.5s 才翻 */
-            d3_tick_10ms = 0;
-            d3_state = 0;
-            D3_OFF();
+                break;
+            case PKE_OPER_STA_POWER_ON:
+                //check 433 key
+                //check 13.56m key
+                //if(key is right) {
+                //    TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+                //} else {
+                //    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                //}
+                TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+                break;
+            case PKE_OPER_STA_IDLE:
+                BR_LIGHT_ON();
+                LP_RIGHT_ON();
+                Delay_ms(500);
+                BR_LIGHT_OFF();
+                LP_RIGHT_OFF();
+                Delay_ms(500);
+                if(TJTW_PKE.power_event_flag)
+                {
+                    TJTW_PKE.power_event_flag = 0;
+                    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                }
+                break;
+            case PKE_OPER_STA_LEARN:
+                for(i=0;i<5;i++) {
+                    BZ_ON();
+                    Delay_ms(500);
+                    BZ_OFF();
+                    Delay_ms(500);
+                }
+                    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                break;
+            default:
+                TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                break;
         }
 
-        if(!pb_arm && !PB4_PRESSED())
-        {
-            pb_arm = 1;
-        }
-
-        /* 2) 醒著時：D3 每 0.5s 閃一下 */
-        if(d3_tick_10ms < 49)
-        {
-            d3_tick_10ms++;
-        }
-        else
-        {
-            d3_tick_10ms = 0;
-            d3_state ^= 1;
-
-            if(d3_state) D3_ON();
-            else         D3_OFF();
-        }
     }
 	/*unsigned char status;
 	u8 set=0;
