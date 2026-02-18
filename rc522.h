@@ -180,4 +180,4 @@ char PcdValue(u8 dd_mode,u8 addr,u8 *pValue);
 void chipSet(u8 chip);
 void Hex2String(u8 hex,u8 *str);
 void cardNo2String(u8 *cardNo, u8 *str);
-void showcard(u8 *,u8 *);
+void showcard(u8 *,u8 *,unsigned char *);

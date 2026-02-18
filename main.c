@@ -18,6 +18,7 @@ enum pke_oper_state {
 
 volatile struct PKE_config {
     uint8_t key_num;
+    uint8_t rc522_num;
     volatile uint8_t oper_state;
     volatile uint8_t power_event_flag;
     volatile uint8_t learn_event_flag;
@@ -44,9 +45,13 @@ volatile struct PKE_config {
 #define MOTOR_REV()  do{MOTOR1_OFF(); MOTOR2_ON();}while(0)
 #define MOTOR_STOP() do{MOTOR1_OFF(); MOTOR2_OFF();}while(0)
 
+#define RC522KEY_COUNT_ADDR   0x00004100
+#define RC522KEY_START_ADDR   0x00004110
+#define RC522KEY_SIZE         4
+#define MAX_RC522KEY_NUM      5
+
 u8 Tx_Buffer[] = "RFID---test";
 #define  BufferSize (countof(Tx_Buffer)-1)
-
 
 void Clock_Config(void)
 {
@@ -61,6 +66,120 @@ void Clock_Config(void)
 	CLK_HSIPrescalerConfig(CLK_PRESCALER_HSIDIV1);
 	CLK_PeripheralClockConfig(CLK_PERIPHERAL_SPI,   ENABLE);
 
+}
+
+void Read_EEpeomData(void)
+{
+    unsigned int x;
+    unsigned char EEprom_Buff[16];
+
+    FLASH_Unlock(FLASH_MEMTYPE_DATA);
+    for (x = 0; x < 16; x++)
+        EEprom_Buff[x] = FLASH_ReadByte(0x00004000 + x);
+    FLASH_Lock(FLASH_MEMTYPE_DATA);
+
+}
+
+u8 Rebuild_KeyCount(void)
+{
+    u8 i, real_count = 0;
+    uint16_t addr;
+
+    for (i = 0; i < MAX_RC522KEY_NUM; i++)
+    {
+        addr = RC522KEY_START_ADDR + (i * RC522KEY_SIZE);
+        FLASH_Unlock(FLASH_MEMTYPE_DATA);
+        if (FLASH_ReadByte(addr) != 0x00 ||
+            FLASH_ReadByte(addr+1) != 0x00 ||
+            FLASH_ReadByte(addr+2) != 0x00 ||
+            FLASH_ReadByte(addr+3) != 0x00)
+        {
+            real_count++;
+        }
+        FLASH_Lock(FLASH_MEMTYPE_DATA);
+    }
+
+    return real_count;
+}
+
+void Write_EEpeomData(unsigned char *rc522)
+{
+    unsigned char i;
+    u8 num, match;
+    uint16_t write_addr;
+    uint16_t read_addr;
+
+    FLASH_Unlock(FLASH_MEMTYPE_DATA);
+    num = FLASH_ReadByte(RC522KEY_COUNT_ADDR);
+    if (num >= MAX_RC522KEY_NUM)
+    {
+        num = Rebuild_KeyCount();
+        FLASH_ProgramByte(RC522KEY_COUNT_ADDR, num);
+        FLASH_Lock(FLASH_MEMTYPE_DATA);
+        return;
+    }
+    match=0;
+    for (i = 0; i < num; i++)
+    {
+        read_addr = RC522KEY_START_ADDR + (i * RC522KEY_SIZE);
+        if ((FLASH_ReadByte(read_addr) == rc522[0]) &&
+            (FLASH_ReadByte(read_addr + 1) == rc522[1]) &&
+            (FLASH_ReadByte(read_addr + 2) == rc522[2]) &&
+            (FLASH_ReadByte(read_addr + 3) == rc522[3]))
+        {
+            match = 1;
+            FLASH_Lock(FLASH_MEMTYPE_DATA);
+            return;
+        }
+    }
+
+    write_addr = RC522KEY_START_ADDR + (num * RC522KEY_SIZE);
+
+    for (i = 0; i < RC522KEY_SIZE; i++)
+        FLASH_ProgramByte(write_addr  + i, rc522[i]);
+
+
+    num++;
+    FLASH_ProgramByte(RC522KEY_COUNT_ADDR, num);
+    FLASH_Lock(FLASH_MEMTYPE_DATA);
+}
+
+
+u8 Check_RC522Key(unsigned char *rc522)
+{
+    u8 i,j;
+    uint16_t read_addr;
+    u8 num, match;
+
+    FLASH_Unlock(FLASH_MEMTYPE_DATA);
+
+    num = FLASH_ReadByte(RC522KEY_COUNT_ADDR);
+
+    if (num > MAX_RC522KEY_NUM)
+        num = Rebuild_KeyCount();
+
+    for (i = 0; i < num; i++)
+    {
+        match=1;
+        read_addr = RC522KEY_START_ADDR + (i * RC522KEY_SIZE);
+        for(j=0;j<RC522KEY_SIZE;j++)
+        {
+            if(FLASH_ReadByte(read_addr + j) != rc522[j])
+            {
+                match=0;
+                break;
+            }
+        }
+        if(match == 1)
+        {
+            FLASH_Lock(FLASH_MEMTYPE_DATA);
+            return 1;   // found
+        }
+
+    }
+
+    FLASH_Lock(FLASH_MEMTYPE_DATA);
+    return 0;   // not found
 }
 
 static void GPIO_Config(void)
@@ -102,6 +221,8 @@ INTERRUPT_HANDLER(EXTI_PORTB_IRQHandler, 4)
 main()
 {
     int i;
+    u8 set=0;
+    unsigned char rc522_SN[4];
     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
     TJTW_PKE.power_event_flag = 0;
     TJTW_PKE.learn_event_flag = 0;
@@ -111,7 +232,9 @@ main()
     TIM4_DeInit();
     TIM4_Init();
     Uart_Init();
-
+    InitRc522();
+    UART2_SendString(Tx_Buffer,BufferSize);
+    Delay_ms(100);
     enableInterrupts();
 
     while(1)
@@ -159,6 +282,19 @@ main()
                 }
                 break;
             case PKE_OPER_STA_LEARN:
+                for(i=0;i<50;i++) {
+                    Delay_ms(100);
+
+                    showcard(Tx_Buffer,&set,rc522_SN);
+                    Reset_RC522();
+                    if(set ==1) {
+                        UART2_SendString(Tx_Buffer, 17);
+                        set=0;
+                        i=50;
+                        Write_EEpeomData(rc522_SN);
+                    }
+                }
+
                 for(i=0;i<5;i++) {
                     BZ_ON();
                     Delay_ms(500);
@@ -173,25 +309,4 @@ main()
         }
 
     }
-	/*unsigned char status;
-	u8 set=0;
-	Clock_Config();
-	GPIO_Init(GPIOE, GPIO_PIN_5, GPIO_MODE_OUT_PP_LOW_FAST);
-
-	TIM4_Init();
-	InitRc522();
-	Uart_Init();
-	UART2_SendString(Tx_Buffer,BufferSize);
-
-	while (1){
-		Delay_ms(100);
-		
-		showcard(Tx_Buffer,&set);
-		Reset_RC522();
-		if(set ==1) {
-			UART2_SendString(Tx_Buffer, 17);
-			set=0;
-		}
-		
-		*/
 }

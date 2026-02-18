@@ -654,26 +654,30 @@ void cardNo2String(u8 *cardNo, u8 *str)
     }
 }
 
-void showcard(u8 Tx_Buffer[64],u8 *set)
+void showcard(u8 Tx_Buffer[64],u8 *set,unsigned char *rc522)
 {
 	unsigned char status;
 	status = PcdRequest(PICC_REQIDL,CT); 
 	if (status==MI_OK)
-		{
-			status = PcdAnticoll(SN); 
-		}  
+    {
+        status = PcdAnticoll(SN); 
+    }
 	if (status==MI_OK)
-		{
-			status = PcdSelect(SN);
-		}  
+    {
+        status = PcdSelect(SN);
+    }
 	if (status==MI_OK)
-		{
-			cardNo2String(SN, Tx_Buffer);
-			*set=1;
-			status=PcdAuthState(0x60,3,key,SN) ;  
-		}  
-	 if (status==MI_OK)
-		{
-			status = PcdHalt();
-		}
+    {
+        cardNo2String(SN, Tx_Buffer);
+        *set=1;
+        rc522[0]=SN[0];
+        rc522[1]=SN[1];
+        rc522[2]=SN[2];
+        rc522[3]=SN[3];
+        status=PcdAuthState(0x60,3,key,SN);
+    }
+    if (status==MI_OK)
+    {
+        status = PcdHalt();
+    }
 }
