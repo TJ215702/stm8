@@ -220,7 +220,7 @@ INTERRUPT_HANDLER(EXTI_PORTB_IRQHandler, 4)
 
 main()
 {
-    int i;
+    int i,ret;
     u8 set=0;
     unsigned char rc522_SN[4];
     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
@@ -266,7 +266,24 @@ main()
                 //} else {
                 //    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                 //}
-                TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+                ret=0;
+                for(i=0;i<50;i++) {
+                    Delay_ms(100);
+
+                    showcard(Tx_Buffer,&set,rc522_SN);
+                    Reset_RC522();
+                    if(set ==1) {
+                        UART2_SendString(Tx_Buffer, 17);
+                        set=0;
+                        i=50;
+                        ret=Check_RC522Key(rc522_SN);
+                    }
+                }
+                if(ret == 1) {
+                    TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+                } else {
+                    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                }
                 break;
             case PKE_OPER_STA_IDLE:
                 BR_LIGHT_ON();
