@@ -44,6 +44,17 @@ void UART2_SendString(u8* Data,u16 len)
   
 }
 
+void UART2_SendStr(char* str)
+{
+  UART2_SendByte('\n');
+  UART2_SendByte('\r');
+    while (*str != '\0')
+    {
+        UART2_SendByte((u8)(*str));
+        str++;
+    }
+}
+
 u8 UART2_ReceiveByte(void)
 {
      u8 USART2_RX_BUF; 

@@ -68,16 +68,25 @@ void Clock_Config(void)
 
 }
 
-void Read_EEpeomData(void)
+void Clear_PKE_EEPROM(void)
 {
-    unsigned int x;
-    unsigned char EEprom_Buff[16];
+    uint8_t i;
 
     FLASH_Unlock(FLASH_MEMTYPE_DATA);
-    for (x = 0; x < 16; x++)
-        EEprom_Buff[x] = FLASH_ReadByte(0x00004000 + x);
-    FLASH_Lock(FLASH_MEMTYPE_DATA);
 
+    for (i = 0; i < 16; i++)
+    {
+        FLASH_ProgramByte(0x00004000 + i, 0x00);
+    }
+
+    FLASH_ProgramByte(0x00004100, 0x00);
+
+    for (i = 0; i < 16; i++)
+    {
+        FLASH_ProgramByte(0x00004110 + i, 0x00);
+    }
+
+    FLASH_Lock(FLASH_MEMTYPE_DATA);
 }
 
 u8 Rebuild_KeyCount(void)
@@ -220,12 +229,15 @@ INTERRUPT_HANDLER(EXTI_PORTB_IRQHandler, 4)
 
 main()
 {
-    int i,ret;
+    int i,ret,idle;
     u8 set=0;
+    uint16_t brightness = 0; // bright pwm (0 到 999)
+    uint8_t up = 1;
     unsigned char rc522_SN[4];
     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
     TJTW_PKE.power_event_flag = 0;
     TJTW_PKE.learn_event_flag = 0;
+    idle=0;
     Clock_Config();
     GPIO_Config();
     EXTI_Config();
@@ -233,17 +245,20 @@ main()
     TIM4_Init();
     Uart_Init();
     InitRc522();
-    UART2_SendString(Tx_Buffer,BufferSize);
     Delay_ms(100);
+    TIM2_PWM_Config();
+    //Clear_PKE_EEPROM();
     enableInterrupts();
+    UART2_SendStr("system start!");
 
     while(1)
-    {    
+    {
         switch(TJTW_PKE.oper_state) {
             case PKE_OPER_STA_POWER_OFF:
-
+                UART2_SendStr("PKE_OPER_STA_POWER_OFF in!");
                 enableInterrupts();
                 halt();
+                Clock_Config();
 
                 if(TJTW_PKE.power_event_flag) {
                     TJTW_PKE.power_event_flag = 0;
@@ -256,9 +271,11 @@ main()
                         TJTW_PKE.oper_state = PKE_OPER_STA_POWER_ON;
                     }
                 }
-
+                Uart_Init();
+                UART2_SendStr("PKE_OPER_STA_POWER_OFF out!");
                 break;
             case PKE_OPER_STA_POWER_ON:
+                UART2_SendStr("PKE_OPER_STA_POWER_ON in!");
                 //check 433 key
                 //check 13.56m key
                 //if(key is right) {
@@ -284,24 +301,35 @@ main()
                 } else {
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                 }
+                UART2_SendStr("PKE_OPER_STA_POWER_ON out!");
                 break;
             case PKE_OPER_STA_IDLE:
-                BR_LIGHT_ON();
-                LP_RIGHT_ON();
-                Delay_ms(500);
-                BR_LIGHT_OFF();
-                LP_RIGHT_OFF();
-                Delay_ms(500);
+                if(idle==0) {
+                    UART2_SendStr("PKE_OPER_STA_IDLE in!");
+                    idle=1;
+                    TIM2_CCxCmd(TIM2_CHANNEL_2, ENABLE);
+                }
+                BR_PWM(&brightness, &up);
+                Delay_ms(10);
                 if(TJTW_PKE.power_event_flag)
                 {
                     TJTW_PKE.power_event_flag = 0;
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                    TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
+                    GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
+                    UART2_SendStr("PKE_OPER_STA_IDLE out!");
+                    idle=0;
                 }
                 break;
             case PKE_OPER_STA_LEARN:
+                UART2_SendStr("PKE_OPER_STA_LEARN in!");
+                TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
+                GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
                 for(i=0;i<50;i++) {
+                    BZ_ON();
+                    LP_RIGHT_ON();
+                    BR_LIGHT_ON();
                     Delay_ms(100);
-
                     showcard(Tx_Buffer,&set,rc522_SN);
                     Reset_RC522();
                     if(set ==1) {
@@ -310,17 +338,16 @@ main()
                         i=50;
                         Write_EEpeomData(rc522_SN);
                     }
-                }
-
-                for(i=0;i<5;i++) {
-                    BZ_ON();
-                    Delay_ms(500);
                     BZ_OFF();
-                    Delay_ms(500);
+                    LP_RIGHT_OFF();
+                    BR_LIGHT_OFF();
+                    Delay_ms(100);
                 }
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                UART2_SendStr("PKE_OPER_STA_LEARN out!");
                 break;
             default:
+                UART2_SendStr("Default state");
                 TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                 break;
         }

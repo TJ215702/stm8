@@ -11,5 +11,6 @@ void Uart_Init(void);
 void UART2_SendByte(u8 data);
 void UART2_SendString(u8* Data,u16 len);
 u8 UART2_ReceiveByte(void);
+void UART2_SendStr(char* str);
 
 #endif

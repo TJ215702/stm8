@@ -321,7 +321,8 @@ FlagStatus TIM2_GetFlagStatus(TIM2_FLAG_TypeDef TIM2_FLAG);
 void TIM2_ClearFlag(TIM2_FLAG_TypeDef TIM2_FLAG);
 ITStatus TIM2_GetITStatus(TIM2_IT_TypeDef TIM2_IT);
 void TIM2_ClearITPendingBit(TIM2_IT_TypeDef TIM2_IT);
-
+void TIM2_PWM_Config(void);
+void BR_PWM(uint16_t *, uint8_t *);
 /**
   * @}
   */

@@ -1316,6 +1316,39 @@ static void TI3_Config(uint8_t TIM2_ICPolarity, uint8_t TIM2_ICSelection,
     /* Set the CCE Bit */
     TIM2->CCER2 |= TIM2_CCER2_CC3E;
 }
+
+void TIM2_PWM_Config(void) {
+
+    TIM2_DeInit();
+
+    TIM2_TimeBaseInit(TIM2_PRESCALER_16, 999);
+
+    TIM2_OC2Init(TIM2_OCMODE_PWM1, TIM2_OUTPUTSTATE_ENABLE, 0, TIM2_OCPOLARITY_HIGH);
+
+    TIM2_OC2PreloadConfig(ENABLE);
+
+    TIM2_Cmd(ENABLE);
+}
+void BR_PWM(uint16_t *brightness, uint8_t *up)
+{
+
+    TIM2_SetCompare2(*brightness);
+
+    if (*up) {
+        *brightness += 20;
+        if (*brightness >= 980) {
+            *brightness = 980;
+            *up = 0;
+        }
+    } else {
+        *brightness -= 20;
+        if (*brightness <= 20) {
+            *brightness = 20;
+            *up = 1;
+        }
+    }
+}
+
 /**
   * @}
   */
