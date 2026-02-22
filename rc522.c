@@ -14,12 +14,14 @@
 //#include "include.h"
 #include "rc522.h"
 #include "stm8s.h"
+#include "stm8s_conf.h"
 #include <string.h>
 
 unsigned char CT[2];
 unsigned char SN[4];
 unsigned char key[6] = {0xff,0xff,0xff,0xff,0xff,0xff};
 
+/*
 void delay_ns(u32 ns)
 {
   u32 i;
@@ -30,7 +32,7 @@ void delay_ns(u32 ns)
 		__asm("nop");
   }
 }
-
+*/
 
 u8 SPIWriteByte(u8 Byte)
 {
@@ -334,18 +336,22 @@ char PcdReset(void)
 	//PORTD|=(1<<RC522RST);
 	//SET_RC522RST;
     GPIO_HIGH(RC522RST_GPIO_PORT,RC522RST_GPIO_PIN);
-    delay_ns(10);
+    //delay_ns(10);
+    Delay_ms(1);
 	//PORTD&=~(1<<RC522RST);
 	//CLR_RC522RST;
     GPIO_LOW(RC522RST_GPIO_PORT,RC522RST_GPIO_PIN);
-    delay_ns(10);
+    //delay_ns(10);
+    Delay_ms(1);
 	//PORTD|=(1<<RC522RST);
 	//SET_RC522RST;
     GPIO_HIGH(RC522RST_GPIO_PORT,RC522RST_GPIO_PIN);
-    delay_ns(10);
+    //delay_ns(10);
+    Delay_ms(1);
     WriteRawRC(CommandReg,PCD_RESETPHASE);
     WriteRawRC(CommandReg,PCD_RESETPHASE);
-    delay_ns(10);
+    //delay_ns(10);
+    Delay_ms(1);
     
     WriteRawRC(ModeReg,0x3D);            //和Mifare卡通讯，CRC初始值0x6363
     WriteRawRC(TReloadRegL,30);           
@@ -372,7 +378,8 @@ char M500PcdConfigISOType(u8   type)
       WriteRawRC(TReloadRegH,0);
       WriteRawRC(TModeReg,0x8D);
       WriteRawRC(TPrescalerReg,0x3E);
-      delay_ns(1000);
+      //delay_ns(1000);
+      Delay_ms(1);
       PcdAntennaOn();
    }
    else

@@ -6,6 +6,7 @@
 #include "stm8s_conf.h"
 #include "uart.h"
 #include "rc522.h"
+#include "lf_send.h"
 
 enum pke_oper_state {
     PKE_OPER_STA_POWER_OFF,
