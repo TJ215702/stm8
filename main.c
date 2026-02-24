@@ -191,6 +191,20 @@ u8 Check_RC522Key(unsigned char *rc522)
     FLASH_Lock(FLASH_MEMTYPE_DATA);
     return 0;   // not found
 }
+/* 20ms pulse */
+static void Motor_Pulse_Fwd_20ms(void)
+{
+    MOTOR_FWD();
+    Delay_ms(20);
+    MOTOR_STOP();
+}
+
+static void Motor_Pulse_Rev_20ms(void)
+{
+    MOTOR_REV();
+    Delay_ms(20);
+    MOTOR_STOP();
+}
 
 static void GPIO_Config(void)
 {
@@ -258,6 +272,7 @@ main()
             case PKE_OPER_STA_POWER_OFF:
                 UART2_SendStr("PKE_OPER_STA_POWER_OFF in!");
                 enableInterrupts();
+								MOTOR_STOP();
                 halt();
                 Clock_Config();
 
@@ -298,6 +313,8 @@ main()
                     }
                 }
                 if(ret == 1) {
+									 /* Power ON + key ok => Motor forward 20ms */
+										Motor_Pulse_Fwd_20ms();
                     TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
                 } else {
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
@@ -315,6 +332,8 @@ main()
                 if(TJTW_PKE.power_event_flag)
                 {
                     TJTW_PKE.power_event_flag = 0;
+										/* Power OFF event => Motor reverse 20ms */
+										Motor_Pulse_Rev_20ms();
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                     TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
                     GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
