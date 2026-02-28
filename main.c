@@ -188,26 +188,26 @@ void AS3933_Register_Set(void)
     AS3933_COMM(0xC4);
     Delay_us(5000);              
     
-    AS3933_SPI_Write_Byte(0x11,0x18);  
+    AS3933_SPI_Write_Byte(0x11,0x18);  //set R17(L1)  12pf ->  16+8=24  25*0.5=12
     Delay_us(1000);                    
-    AS3933_SPI_Write_Byte(0x10,0x41);	
+    AS3933_SPI_Write_Byte(0x10,0x41);	 //turn on L1 test mode
     Delay_us(10000);                    
-    AS3933_SPI_Write_Byte(0x10,0x00);
+    AS3933_SPI_Write_Byte(0x10,0x00); //turn off L1 test mode
   
-    AS3933_SPI_Write_Byte(0x12,0x0E);   
+    AS3933_SPI_Write_Byte(0x12,0x0E);   //set R18(L2)  7pf ->  8+4+2=14  14*0.5=7
     Delay_us(1000);                    
-    AS3933_SPI_Write_Byte(0x10,0x42);	
+    AS3933_SPI_Write_Byte(0x10,0x42);	//turn on L2 test mode
     Delay_us(10000);                    
-    AS3933_SPI_Write_Byte(0x10,0x00);
+    AS3933_SPI_Write_Byte(0x10,0x00);  //turn off L2 test mode
     
-    AS3933_SPI_Write_Byte(0x13,0x18);   
+    AS3933_SPI_Write_Byte(0x13,0x18);   //set R19(L3)  12pf ->  16+8=24  25*0.5=12
     Delay_us(1000);                     
-    AS3933_SPI_Write_Byte(0x10,0x44);	
+    AS3933_SPI_Write_Byte(0x10,0x44);	//turn on L3 test mode
     Delay_us(10000);                  
-    AS3933_SPI_Write_Byte(0x10, 0x00);
+    AS3933_SPI_Write_Byte(0x10, 0x00);  //turn off L3 test mode
     
-    AS3933_SPI_Write_Byte(0x00, 0xDE);  
-    AS3933_SPI_Write_Byte(0x01, 0x2A);	                               
+    AS3933_SPI_Write_Byte(0x00, 0xDE);  //enable L1/L2/L3 ,automatic scan mode , internal clock
+    AS3933_SPI_Write_Byte(0x01, 0x2A);	    //Bit 3:1  -12dB , Bit 6(0) use 16 bit wake up                       
     AS3933_RC_Check();                 
     AS3933_RC_Check();  
     AS3933_SPI_Write_Byte(0x02, 0x20);  
