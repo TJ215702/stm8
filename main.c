@@ -212,9 +212,9 @@ void AS3933_Register_Set(void)
     AS3933_RC_Check();  
     AS3933_SPI_Write_Byte(0x02, 0x20);  
     AS3933_SPI_Write_Byte(0x03, 0xBA); 
-    AS3933_SPI_Write_Byte(0x04, 0x30);  
-    AS3933_SPI_Write_Byte(0x05, 0x3A);  
-    AS3933_SPI_Write_Byte(0x06, 0xC3); 
+    AS3933_SPI_Write_Byte(0x04, 0x30);   //off time set , set max Damping resistor
+    AS3933_SPI_Write_Byte(0x05, 0x3A);   //wake up low Pattern
+    AS3933_SPI_Write_Byte(0x06, 0xC3);   //wake up high Pattern
     AS3933_SPI_Write_Byte(0x07, 0x8B); 
     AS3933_SPI_Write_Byte(0x08, 0x00);  
     AS3933_SPI_Write_Byte(0x09, 0x00);
