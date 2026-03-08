@@ -9,7 +9,22 @@
 /**/Release/*
 /**/Debug/*
 *.wed
+Debug/
+Release/
 
+# 但是「不要」忽略 Debug 資料夾底下的 .lkf 檔案
+!Debug/*.lkf
+!Release/*.lkf
+
+# 其他副檔名照樣忽略
+*.o
+*.ls
+*.elf
+*.map
+*.s19
+*.sm8
+*.wed
+*.vpt
 # Uncomment these to include hex/elf files
 #!/**/[Ff]ree/production/*.hex
 #!/**/[Ff]ree/production/*.elf
