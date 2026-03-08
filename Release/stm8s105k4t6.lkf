@@ -27,18 +27,18 @@
 # Segment configuration - section reserved for STVD
 #<BEGIN SEGMENT_CONF>
 # Segment Code,Constants:
-+seg .const -b 0x8080 -m 0x3f80  -n .const -it 
-+seg .text -a .const  -n .text 
++seg .const -b 0x8080 -m 0x3f80 -n .const -it
++seg .text -a .const -n .text
 # Segment Eeprom:
-+seg .eeprom -b 0x4000 -m 0x400  -n .eeprom 
++seg .eeprom -b 0x4000 -m 0x400 -n .eeprom
 # Segment Zero Page:
-+seg .bsct -b 0x0 -m 0x100  -n .bsct 
-+seg .ubsct -a .bsct  -n .ubsct 
-+seg .bit -a .ubsct  -n .bit -id 
-+seg .share -a .bit  -n .share -is 
++seg .bsct -b 0x0 -m 0x100 -n .bsct
++seg .ubsct -a .bsct -n .ubsct
++seg .bit -a .ubsct -n .bit -id
++seg .share -a .bit -n .share -is
 # Segment Ram:
-+seg .data -b 0x100 -m 0x500  -n .data 
-+seg .bss -a .data  -n .bss 
++seg .data -b 0x100 -m 0x700 -n .data
++seg .bss -a .data -n .bss
 #<END SEGMENT_CONF>
 
 
@@ -83,7 +83,7 @@ Release\stm8_interrupt_vector.o
 #<BEGIN DEFINED_VARIABLES>
 +def __endzp=@.ubsct			# end of uninitialized zpage
 +def __memory=@.bss				# end of bss segment
-+def __startmem=@.bss
++def __startmem=@.bss				# end of bss segment
 +def __endmem=0x5ff
 +def __stack=0x7ff
 #<END DEFINED_VARIABLES>
