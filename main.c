@@ -51,6 +51,10 @@ volatile struct PKE_config {
 #define RC522KEY_SIZE         4
 #define MAX_RC522KEY_NUM      5
 
+//for ign to count down by 10s
+#define IGN_TIMEOUT_MS      10000UL
+#define IGN_IS_ON()         (GPIO_ReadInputPin(GPIOB, GPIO_PIN_5) != RESET)
+
 u8 Tx_Buffer[] = "RFID---test";
 #define  BufferSize (countof(Tx_Buffer)-1)
 
@@ -195,14 +199,14 @@ u8 Check_RC522Key(unsigned char *rc522)
 static void Motor_Pulse_Fwd_20ms(void)
 {
     MOTOR_FWD();
-    Delay_ms(20);
+    Delay_ms_int(20);
     MOTOR_STOP();
 }
 
 static void Motor_Pulse_Rev_20ms(void)
 {
     MOTOR_REV();
-    Delay_ms(20);
+    Delay_ms_int(20);
     MOTOR_STOP();
 }
 
@@ -245,6 +249,14 @@ INTERRUPT_HANDLER(EXTI_PORTB_IRQHandler, 4)
 main()
 {
     int i,ret,idle;
+		
+		//for ign using 
+		uint32_t ign_start_tick = 0;
+		uint8_t ign_prev = 0;
+		uint8_t ign_now = 0;
+		uint8_t ign_wait = 0;
+		uint8_t ign_active = 0;
+		
     u8 set=0;
     uint16_t brightness = 0; // bright pwm (0 åˆ° 999)
     uint8_t up = 1;
@@ -253,19 +265,24 @@ main()
     TJTW_PKE.power_event_flag = 0;
     TJTW_PKE.learn_event_flag = 0;
     idle=0;
+		ign_wait = 0;
+		ign_start_tick = 0;
+		
     Clock_Config();
     GPIO_Config();
     EXTI_Config();
-    TIM4_DeInit();
-    TIM4_Init();
+    //TIM4_DeInit();
+    //TIM4_Init();
+		MX_TIM4_Init();
     Uart_Init();
     InitRc522();
-    Delay_ms(100);
+    Delay_ms_int(100);
     TIM2_PWM_Config();
     //Clear_PKE_EEPROM();
     enableInterrupts();
+		
     UART2_SendStr("system start!");
-
+		
     while(1)
     {
         switch(TJTW_PKE.oper_state) {
@@ -273,8 +290,14 @@ main()
                 UART2_SendStr("PKE_OPER_STA_POWER_OFF in!");
                 enableInterrupts();
 								MOTOR_STOP();
+								Delay_ms_int(50);
                 halt();
+								Delay_ms_int(50);
                 Clock_Config();
+								MX_TIM4_Init();      // ¦pªG HALT «á timer »Ý­n­««Ø
+								Uart_Init();         // ¦pªG UART ª¬ºA¤£«OÃÒ
+								InitRc522();
+								Delay_ms_int(50);
 
                 if(TJTW_PKE.power_event_flag) {
                     TJTW_PKE.power_event_flag = 0;
@@ -301,7 +324,7 @@ main()
                 //}
                 ret=0;
                 for(i=0;i<50;i++) {
-                    Delay_ms(100);
+                    Delay_ms_int(100);
 
                     showcard(Tx_Buffer,&set,rc522_SN);
                     Reset_RC522();
@@ -313,12 +336,30 @@ main()
                     }
                 }
                 if(ret == 1) {
-									 /* Power ON + key ok => Motor forward 20ms */
 										Motor_Pulse_Fwd_20ms();
-                    TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
-                } else {
-                    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                }
+								
+										if(IGN_IS_ON()) {
+												ign_wait = 0;
+												ign_active = 1;
+												ign_prev = 1;
+												ign_start_tick = 0;
+												UART2_SendStr("IGN already ON");
+										} else {
+												ign_wait = 1;
+												ign_active = 0;
+												ign_prev = 0;
+												ign_start_tick = tim4_tick;
+												UART2_SendStr("IGN wait start");
+										}
+								
+										TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+								} else {
+										ign_wait = 0;
+										ign_active = 0;
+										ign_prev = 0;
+										ign_start_tick = 0;
+										TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+								}
                 UART2_SendStr("PKE_OPER_STA_POWER_ON out!");
                 break;
             case PKE_OPER_STA_IDLE:
@@ -328,7 +369,62 @@ main()
                     TIM2_CCxCmd(TIM2_CHANNEL_2, ENABLE);
                 }
                 BR_PWM(&brightness, &up);
-                Delay_ms(10);
+                Delay_ms_int(10);	
+								ign_now = 0;
+								if(IGN_IS_ON()) {
+										ign_now = 1;
+								}
+								
+								/* Step 1: wait for IGN ON */
+								if(ign_wait) {
+										if(ign_now) {
+												ign_wait = 0;
+												ign_active = 1;
+												ign_prev = 1;
+												ign_start_tick = 0;
+												UART2_SendStr("IGN detected");
+										}
+										else if((uint32_t)(tim4_tick - ign_start_tick) >= IGN_TIMEOUT_MS) {
+												UART2_SendStr("IGN timeout");
+								
+												Motor_Pulse_Rev_20ms();
+								
+												ign_wait = 0;
+												ign_active = 0;
+												ign_prev = 0;
+												ign_start_tick = 0;
+								
+												TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+												TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
+												GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
+												UART2_SendStr("PKE_OPER_STA_IDLE out!");
+												idle = 0;
+												break;
+										}
+								}
+								
+								/* Step 2: IGN ON ,check ON -> OFF */
+								else if(ign_active) {
+										if((ign_prev == 1) && (ign_now == 0)) {
+												UART2_SendStr("IGN OFF detected");
+								
+												Motor_Pulse_Rev_20ms();
+								
+												ign_wait = 0;
+												ign_active = 0;
+												ign_prev = 0;
+												ign_start_tick = 0;
+								
+												TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+												TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
+												GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
+												UART2_SendStr("PKE_OPER_STA_IDLE out!");
+												idle = 0;
+												break;
+										}
+								
+										ign_prev = ign_now;
+								}
                 if(TJTW_PKE.power_event_flag)
                 {
                     TJTW_PKE.power_event_flag = 0;
@@ -349,7 +445,7 @@ main()
                     BZ_ON();
                     LP_RIGHT_ON();
                     BR_LIGHT_ON();
-                    Delay_ms(100);
+                    Delay_ms_int(100);
                     showcard(Tx_Buffer,&set,rc522_SN);
                     Reset_RC522();
                     if(set ==1) {
@@ -361,8 +457,10 @@ main()
                     BZ_OFF();
                     LP_RIGHT_OFF();
                     BR_LIGHT_OFF();
-                    Delay_ms(100);
+                    Delay_ms_int(100);
                 }
+								ign_wait = 0;
+								ign_start_tick = 0;
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                 UART2_SendStr("PKE_OPER_STA_LEARN out!");
                 break;

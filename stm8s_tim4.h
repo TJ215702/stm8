@@ -158,6 +158,7 @@ void Delay_ms(uint32_t ms);
 void Delay_ms_int(uint32_t ms);
 void MX_TIM4_Init(void);
 
+extern volatile uint32_t tim4_tick;
 /**
   * @}
   */
