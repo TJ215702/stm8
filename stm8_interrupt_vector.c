@@ -21,6 +21,7 @@ extern void _stext();     /* startup routine */
 
 extern @far @interrupt void Tim4Update_isr(void);
 extern @far @interrupt void EXTI_PORTB_IRQHandler(void); //PB4 interrupt
+extern @far @interrupt void tim2_irqhandler(void); //tim2 interrupt
 
 struct interrupt_vector const _vectab[] = {
 	{0x82, (interrupt_handler_t)_stext}, /* reset */
@@ -38,7 +39,7 @@ struct interrupt_vector const _vectab[] = {
 	{0x82, NonHandledInterrupt}, /* irq10 */
 	{0x82, NonHandledInterrupt}, /* irq11 */
 	{0x82, NonHandledInterrupt}, /* irq12 */
-	{0x82, NonHandledInterrupt}, /* irq13 */
+	{0x82,  (interrupt_handler_t)tim2_irqhandler}, /* irq13 */     //tim2 interrupt
 	{0x82, NonHandledInterrupt}, /* irq14 */
 	{0x82, NonHandledInterrupt}, /* irq15 */
 	{0x82, NonHandledInterrupt}, /* irq16 */

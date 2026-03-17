@@ -8,6 +8,37 @@
 #include "rc522.h"
 #include "lf_send.h"
 
+
+unsigned char RFFull = 0;
+unsigned char RFBit;
+unsigned char LL_w = 0;
+unsigned char First_flag = 0;
+unsigned char Buff_B[3];
+unsigned char BitCount;
+
+unsigned char FLearn = 0;
+unsigned int  COut   = 0;
+unsigned int  CLearn = 0;
+unsigned int  CTLearn = 0;
+unsigned char LF_Send_flag = 0;
+unsigned char Mode_Key_Old = 0;
+unsigned char Send_Key_Old = 0;
+unsigned char MLearn = 0;
+unsigned char CSend = 0;
+
+unsigned char Time_1ms = 0;
+unsigned char Time_Nms = 0;
+
+unsigned char User_LF_Send = 0;
+
+#define RF_NUM       5
+#define RF_Byte_LEN  3
+#define RF_LEN       24
+
+
+void Key_Scan(void);
+void RF_Remote(void);
+
 enum pke_oper_state {
     PKE_OPER_STA_POWER_OFF,
     PKE_OPER_STA_POWER_ON,
@@ -44,6 +75,8 @@ volatile struct PKE_config {
 #define MOTOR_REV()  do{MOTOR1_OFF(); MOTOR2_ON();}while(0)
 #define MOTOR_STOP() do{MOTOR1_OFF(); MOTOR2_OFF();}while(0)
 
+#define RF_DATA_LOW()        (GPIO_ReadInputPin(GPIOD, GPIO_PIN_0) == RESET)
+
 #define RC522KEY_COUNT_ADDR   0x00004100
 #define RC522KEY_START_ADDR   0x00004110
 #define RC522KEY_SIZE         4
@@ -72,6 +105,22 @@ const unsigned int wCRCTalbeAbs[] =
 
 u8 Tx_Buffer[] = "RFID---test";
 #define  BufferSize (countof(Tx_Buffer)-1)
+
+
+unsigned int GetCRC16(unsigned char *pchMsg, unsigned char wDataLen)
+{
+    unsigned int wCRC = 0xFFFF;
+    unsigned int i;
+    unsigned char chChar;
+
+    for (i = 0; i < wDataLen; i++)
+    {
+        chChar = *pchMsg++;
+        wCRC = wCRCTalbeAbs[(chChar ^ wCRC) & 15] ^ (wCRC >> 4);
+        wCRC = wCRCTalbeAbs[((chChar >> 4) ^ wCRC) & 15] ^ (wCRC >> 4);
+    }
+    return wCRC;
+}
 
 void Clock_Config(void)
 {
@@ -299,6 +348,167 @@ INTERRUPT_HANDLER(EXTI_PORTB_IRQHandler, 4)
     TJTW_PKE.power_event_flag = 1;
 }
 
+void TIM2_Init(void)
+{
+    TIM2_DeInit();
+    TIM2_TimeBaseInit(TIM2_PRESCALER_16,100);   /* 0.1ms */
+    TIM2_ITConfig(TIM2_IT_UPDATE , ENABLE);
+    TIM2_SetCounter(0x0000);
+    TIM2_Cmd(ENABLE);
+}
+
+
+void RF_Remote(void)
+{
+    unsigned char i,j;
+    unsigned char HF_Key = 0;
+    unsigned char Buffer[RF_Byte_LEN];
+    unsigned char RF_UartSend[RF_Byte_LEN + 8];
+    unsigned char RF_num;
+    unsigned int  crc;
+    unsigned char string_buffer[12];
+    const char hex_chars[] = "0123456789ABCDEF";
+    char hex_out[4];
+
+    for (i = 0; i < RF_Byte_LEN; i++)
+        Buffer[i] = Buff_B[i];
+
+    HF_Key = Buffer[RF_Byte_LEN - 1] & 0x0F;
+    Buffer[RF_Byte_LEN - 1] &= 0xF0;
+
+    for (i = 0; i < RF_Byte_LEN + 1; i++)
+        RF_UartSend[i + 2] = Buffer[i];
+
+    RF_UartSend[0] = 0;
+    RF_UartSend[1] = 0;
+    RF_UartSend[2] = 0xFA;
+    RF_UartSend[3] = 0xDD;
+    for (i = 0; i < RF_Byte_LEN; i++)
+        RF_UartSend[4 + i] = Buffer[i];
+    RF_UartSend[RF_Byte_LEN + 4] = HF_Key;
+
+    crc = GetCRC16(&RF_UartSend[2], RF_Byte_LEN + 3);
+    RF_UartSend[RF_Byte_LEN + 5] = (uint8_t)(crc >> 8);
+    RF_UartSend[RF_Byte_LEN + 6] = (uint8_t)(crc & 0xFF);
+    RF_UartSend[RF_Byte_LEN + 7] = 0xEE;
+
+    RFFull = 0;
+
+    UART2_SendString("\r\nRF Data: ", 11);
+    for (i = 0; i < 11; i++) {
+            uint8_t val = RF_UartSend[i];
+
+            hex_out[0] = hex_chars[(val >> 4) & 0x0F];
+
+            hex_out[1] = hex_chars[val & 0x0F];
+
+            hex_out[2] = ' ';
+
+            UART2_SendString((unsigned char*)hex_out, 3);
+        }
+        UART2_SendString("\r\n", 2); // ??
+
+}
+
+
+@far @interrupt void tim2_irqhandler(void)
+{
+    /* Clear TIM2 update interrupt flag */
+    TIM2_ClearITPendingBit(TIM2_IT_UPDATE);
+
+    /* -------------------------------------------------------------
+     * Time base: 1 ms tick and 10 ms tick
+     * ------------------------------------------------------------- */
+    Time_1ms++;
+
+    if (Time_1ms >= 10)
+    {
+        Time_1ms = 0;
+        Time_Nms++;
+
+        /* LF send timer countdown (clamp to 0) */
+        if ((LF_ENABLE == 1) && (LF_Send_Tim > 0))
+            LF_Send_Tim--;
+        else
+            LF_Send_Tim = 0;
+    }
+
+    /* If an RF frame is already captured, skip decoding */
+    if (RFFull)
+        return;
+
+    /* -------------------------------------------------------------
+     * RF OOK decoding:
+     * - Measure LOW pulse width (LL_w) while RF_DATA is low
+     * - On rising edge (LOW -> HIGH), interpret the LOW width
+     * ------------------------------------------------------------- */
+    if (RF_DATA_LOW())
+    {
+        /* Accumulate LOW width in ticks */
+        LL_w++;
+        RFBit = 0;   /* Mark current level as LOW */
+    }
+    else
+    {
+        /* Rising edge: process the LOW width that just ended */
+        if (!RFBit)
+        {
+            if (!First_flag)
+            {
+                /* Detect sync/preamble LOW width */
+                if ((LL_w > 40) && (LL_w < 60))
+                {
+                    First_flag = 1;
+                    BitCount   = 0;
+                    Buff_B[0] = Buff_B[1] = Buff_B[2] = 0;
+                }
+            }
+            else
+            {
+                /* Decode data bits by LOW width */
+                if ((LL_w > 3) && (LL_w <= 7))
+                {
+                    /* Bit '1' */
+                    if (BitCount < RF_LEN)
+                    {
+                        Buff_B[BitCount >> 3] <<= 1;
+                        Buff_B[BitCount >> 3] |= 0x01;
+                        BitCount++;
+                    }
+                }
+                else if ((LL_w >= 8) && (LL_w < 13))
+                {
+                    /* Bit '0' */
+                    if (BitCount < RF_LEN)
+                    {
+                        Buff_B[BitCount >> 3] <<= 1;
+                        BitCount++;
+                    }
+                }
+                else
+                {
+                    /* Invalid width: reset decoder state */
+                    First_flag = 0;
+                    BitCount   = 0;
+                }
+
+                /* Frame complete */
+                if (BitCount >= RF_LEN)
+                {
+                    BitCount   = 0;
+                    First_flag = 0;
+                    RFFull     = 1;
+                }
+            }
+
+            /* Reset LOW width counter after processing */
+            LL_w = 0;
+        }
+
+        RFBit = 1;   /* Mark current level as HIGH */
+    }
+}
+
 main()
 {
     int i,ret,idle;
@@ -336,12 +546,17 @@ main()
     Write_EEpeomData_125();
     Read_EEpeomData_125();
 
+    //Delay_InIt(16);
+    //TIM2_Init();   //need ro mask  TIM2_PWM_Config()
+
     enableInterrupts();
 		
     UART2_SendStr("system start!");
 		
     while(1)
     {
+      //  if (RFFull)
+       //     RF_Remote();
         switch(TJTW_PKE.oper_state) {
             case PKE_OPER_STA_POWER_OFF:
                 UART2_SendStr("PKE_OPER_STA_POWER_OFF in!");
