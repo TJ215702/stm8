@@ -42,6 +42,7 @@ void RF_Remote(void);
 enum pke_oper_state {
     PKE_OPER_STA_POWER_OFF,
     PKE_OPER_STA_POWER_ON,
+    PKE_OPER_STA_WAIT,
     PKE_OPER_STA_IDLE,
     PKE_OPER_STA_LEARN,
     PKE_OPER_STA_BUSY,
@@ -75,7 +76,7 @@ volatile struct PKE_config {
 #define MOTOR_REV()  do{MOTOR1_OFF(); MOTOR2_ON();}while(0)
 #define MOTOR_STOP() do{MOTOR1_OFF(); MOTOR2_OFF();}while(0)
 
-#define RF_DATA_LOW()        (GPIO_ReadInputPin(GPIOD, GPIO_PIN_0) == RESET)
+#define RF_DATA_LOW()        (GPIO_ReadInputPin(GPIOD, GPIO_PIN_0) == RESET)   //RESET=0
 
 #define RC522KEY_COUNT_ADDR   0x00004100
 #define RC522KEY_START_ADDR   0x00004110
@@ -84,7 +85,8 @@ volatile struct PKE_config {
 
 //for ign to count down by 10s
 #define IGN_TIMEOUT_MS      10000UL
-#define IGN_IS_ON()         (GPIO_ReadInputPin(GPIOB, GPIO_PIN_5) != RESET)
+#define IGN_IS_ON()         (GPIO_ReadInputPin(GPIOB, GPIO_PIN_5) != RESET)  //SET=1
+#define IGN_detect()         GPIO_ReadInputPin(GPIOB, GPIO_PIN_5)
 
 #define MCU_REG_NUM      26
 const uint8_t mcu_user_config[MCU_REG_NUM] =
@@ -512,13 +514,7 @@ void RF_Remote(void)
 main()
 {
     int i,ret,idle;
-		
-    //for ign using 
-    uint16_t ign_wait_cnt = 0;
-    uint8_t ign_prev = 0;
-    uint8_t ign_now = 0;
     uint8_t ign_wait = 0;
-    uint8_t ign_active = 0;
 		
     u8 set=0;
     uint16_t brightness = 0; // bright pwm (0 到 999)
@@ -528,7 +524,6 @@ main()
     TJTW_PKE.power_event_flag = 0;
     TJTW_PKE.learn_event_flag = 0;
     idle=0;
-	ign_wait = 0;
 		
     Clock_Config();
     GPIO_Config();
@@ -555,8 +550,9 @@ main()
 		
     while(1)
     {
-      //  if (RFFull)
-       //     RF_Remote();
+        //if (RFFull)
+        //    RF_Remote();
+       
         switch(TJTW_PKE.oper_state) {
             case PKE_OPER_STA_POWER_OFF:
                 UART2_SendStr("PKE_OPER_STA_POWER_OFF in!");
@@ -609,29 +605,30 @@ main()
                 }
                 if(ret == 1) {
                         Motor_Pulse_Fwd_20ms();
-                        if(IGN_IS_ON()) {
-                                ign_wait = 0;
-                                ign_active = 1;
-                                ign_prev = 1;
-                                ign_wait_cnt = 0;
-                                UART2_SendStr("IGN already ON");
-                        } else {
-                                ign_wait = 1;
-                                ign_active = 0;
-                                ign_prev = 0;
-                                ign_wait_cnt = 0;
-                                UART2_SendStr("IGN wait start");
-                        }
-
-                        TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+                        TJTW_PKE.oper_state = PKE_OPER_STA_WAIT;
                 } else {
-                        ign_wait = 0;
-                        ign_active = 0;
-                        ign_prev = 0;
-                        ign_wait_cnt = 0;
                         TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                 }
                 UART2_SendStr("PKE_OPER_STA_POWER_ON out!");
+                break;
+            case PKE_OPER_STA_WAIT:
+                UART2_SendStr("PKE_OPER_STA_WAIT in!");
+                if(IGN_IS_ON()) {  //ign on
+                    TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+                    UART2_SendStr("IGN_ON PKE_OPER_STA_WAIT out!");
+                }
+                else {
+                    if(ign_wait >=10) {
+                        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                        ign_wait=0;
+                        UART2_SendStr("PKE_OPER_STA_WAIT out!");
+                    }
+                    else {
+                        Delay_ms(1000);
+                        ign_wait++;
+                    }
+                }
+
                 break;
             case PKE_OPER_STA_IDLE:
                 if(idle==0) {
@@ -641,68 +638,10 @@ main()
                 }
                 BR_PWM(&brightness, &up);
                 Delay_ms(10);	
-                ign_now = 0;
-                if(IGN_IS_ON()) {
-                        ign_now = 1;
-                }
-
-                if(ign_wait) {   //Step 1: wait for IGN ON
-                    if(ign_now) {
-                            ign_wait = 0;
-                            ign_active = 1;
-                            ign_prev = 1;
-                            ign_wait_cnt = 0;
-                            UART2_SendStr("IGN detected");
-                    }
-                    else{
-                            ign_wait_cnt++;
-
-                            if(ign_wait_cnt >= 1000)   // 1000 x 10ms = 10s
-                            {
-                                    UART2_SendStr("IGN timeout");
-
-                                    Motor_Pulse_Rev_20ms();
-
-                                    ign_wait = 0;
-                                    ign_active = 0;
-                                    ign_prev = 0;
-                                    ign_wait_cnt = 0;
-
-                                    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                                    TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-                                    GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
-                                    UART2_SendStr("PKE_OPER_STA_IDLE out!");
-                                    idle = 0;
-                                    break;
-                            }
-                    }
-                }
-
-                else if(ign_active) {   //Step 2: IGN ON ,check ON -> OF
-                    if((ign_prev == 1) && (ign_now == 0)) {
-                        UART2_SendStr("IGN OFF detected");
-
-                        Motor_Pulse_Rev_20ms();
-
-                        ign_wait = 0;
-                        ign_active = 0;
-                        ign_prev = 0;
-                        ign_wait_cnt = 0;
-
-                        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                        TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-                        GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
-                        UART2_SendStr("PKE_OPER_STA_IDLE out!");
-                        idle = 0;
-                        break;
-                    }
-
-                    ign_prev = ign_now;
-                }
                 if(TJTW_PKE.power_event_flag)
                 {
                     TJTW_PKE.power_event_flag = 0;
-										Motor_Pulse_Rev_20ms();  //Power OFF event => Motor reverse 20ms
+					Motor_Pulse_Rev_20ms();  //Power OFF event => Motor reverse 20ms
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                     TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
                     GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
@@ -732,9 +671,7 @@ main()
                     BR_LIGHT_OFF();
                     Delay_ms(100);
                 }
-                    ign_wait = 0;
-                    ign_wait_cnt = 0;
-                    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+                TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                 UART2_SendStr("PKE_OPER_STA_LEARN out!");
                 break;
             default:
