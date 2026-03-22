@@ -35,6 +35,7 @@
 #include "stm8l15x_exti.h"
 #include "stm8l15x_clk.h"
 #include "stm8l15x_pwr.h"
+#include "stm8l15x_flash.h"
 
 /* Uncomment the line below to enable peripheral header file inclusion */
 /*

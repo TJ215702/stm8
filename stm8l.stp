@@ -97,6 +97,7 @@ String.6.0=2025,3,8,17,34,17
 [Root.Config.0.Settings.5]
 String.2.0=Running Pre-Link step
 String.6.0=2025,3,8,17,34,17
+String.8.0=
 
 [Root.Config.0.Settings.6]
 String.2.0=Running Linker
@@ -214,7 +215,7 @@ String.6.0=2025,3,8,17,34,17
 [Root.Source Files]
 ElemType=Folder
 PathName=Source Files
-Child=Root.Source Files.main.c
+Child=Root.Source Files.stm8l15x_flash.c
 Next=Root.Include Files
 Config.0=Root.Source Files.Config.0
 Config.1=Root.Source Files.Config.1
@@ -285,6 +286,11 @@ String.4.0=
 String.5.0=
 String.6.0=2025,3,8,17,34,17
 
+[Root.Source Files.stm8l15x_flash.c]
+ElemType=File
+PathName=stm8l15x_flash.c
+Next=Root.Source Files.main.c
+
 [Root.Source Files.main.c]
 ElemType=File
 PathName=main.c
@@ -317,7 +323,7 @@ PathName=stm8l15x_pwr.c
 [Root.Include Files]
 ElemType=Folder
 PathName=Include Files
-Child=Root.Include Files.discover_board.h
+Child=Root.Include Files.stm8l15x_flash.h
 Config.0=Root.Include Files.Config.0
 Config.1=Root.Include Files.Config.1
 
@@ -386,6 +392,11 @@ String.3.0=
 String.4.0=
 String.5.0=
 String.6.0=2025,3,8,17,34,17
+
+[Root.Include Files.stm8l15x_flash.h]
+ElemType=File
+PathName=stm8l15x_flash.h
+Next=Root.Include Files.discover_board.h
 
 [Root.Include Files.discover_board.h]
 ElemType=File
