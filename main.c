@@ -15,28 +15,13 @@ unsigned char LL_w = 0;
 unsigned char First_flag = 0;
 unsigned char Buff_B[3];
 unsigned char BitCount;
-
-unsigned char FLearn = 0;
-unsigned int  COut   = 0;
-unsigned int  CLearn = 0;
-unsigned int  CTLearn = 0;
-unsigned char LF_Send_flag = 0;
-unsigned char Mode_Key_Old = 0;
-unsigned char Send_Key_Old = 0;
-unsigned char MLearn = 0;
-unsigned char CSend = 0;
-
 unsigned char Time_1ms = 0;
 unsigned char Time_Nms = 0;
-
-unsigned char User_LF_Send = 0;
 
 #define RF_NUM       5
 #define RF_Byte_LEN  3
 #define RF_LEN       24
 
-
-void Key_Scan(void);
 void RF_Remote(void);
 
 enum pke_oper_state {
