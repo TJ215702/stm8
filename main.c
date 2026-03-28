@@ -621,6 +621,7 @@ main()
                     if(ign_wait >=10) {
                         TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                         ign_wait=0;
+			Motor_Pulse_Rev_20ms();
                         UART2_SendStr("PKE_OPER_STA_WAIT out!");
                     }
                     else {
@@ -648,6 +649,12 @@ main()
                     UART2_SendStr("PKE_OPER_STA_IDLE out!");
                     idle=0;
                 }
+		else if (!IGN_IS_ON()) {  //ign off
+			Motor_Pulse_Rev_20ms();
+			TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+			UART2_SendStr("IGN_OFF PKE_OPER_STA_IDLE out!");
+			idle=0;
+		}
                 break;
             case PKE_OPER_STA_LEARN:
                 UART2_SendStr("PKE_OPER_STA_LEARN in!");
