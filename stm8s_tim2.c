@@ -1335,15 +1335,15 @@ void BR_PWM(uint16_t *brightness, uint8_t *up)
     TIM2_SetCompare2(*brightness);
 
     if (*up) {
-        *brightness += 20;
-        if (*brightness >= 980) {
-            *brightness = 980;
+        *brightness += 1;
+        if (*brightness >= 98) {
+            *brightness = 98;
             *up = 0;
         }
     } else {
-        *brightness -= 20;
-        if (*brightness <= 20) {
-            *brightness = 20;
+        *brightness -= 1;
+        if (*brightness <= 2) {
+            *brightness = 2;
             *up = 1;
         }
     }
