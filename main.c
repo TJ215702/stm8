@@ -9,27 +9,77 @@ unsigned char AS3933_Wake = 0;
 unsigned char WakeData_Flag = 0;
 unsigned char Wake_Date[20];
 unsigned char RSSI_Date[3];
-unsigned char STM8L_ID[4];           
+unsigned char STM8L_ID[8];
 unsigned char UserKey_Flag = 0;
 unsigned long RF_SN;                
 volatile u8 fac_us = 0;
+unsigned long Data_High, Data_Low;
 
 void RF_SendData(unsigned char Key);
 void AS3933_WakeUp(void);
 
 
+
+// CRC16  (CCITT: x^16 + x^12 + x^5 + 1)
+uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len) {
+    uint16_t crc = 0xFFFF;
+    uint8_t i, j;
+    for (i = 0; i < len; i++) {
+        crc ^= (uint16_t)ptr[i] << 8;
+        for (j = 0; j < 8; j++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    return crc;
+}
+
 void Get_STM8L_UniqueID(void)        
 {
      unsigned char i;
+     uint16_t crc_result;
      
-     for(i = 0; i < 4; i ++)
+     STM8L_ID[0] = *(unsigned char*)(0x4926); // X
+     STM8L_ID[1] = *(unsigned char*)(0x4928); // Y
+     STM8L_ID[2] = *(unsigned char*)(0x492B); // LOT 1
+     STM8L_ID[3] = *(unsigned char*)(0x492C); // LOT 2
+     STM8L_ID[4] = *(unsigned char*)(0x492D); // LOT 3
+     STM8L_ID[5] = *(unsigned char*)(0x492E); // LOT 4
+
+     crc_result = Calculate_CRC16(STM8L_ID, 6);
+
+     STM8L_ID[6] = (uint8_t)(crc_result >> 8);   // CRC High
+     STM8L_ID[7] = (uint8_t)(crc_result & 0xFF); // CRC Low
+
+     Data_High = ((uint32_t)STM8L_ID[0] << 24) |
+                ((uint32_t)STM8L_ID[1] << 16) |
+                ((uint32_t)STM8L_ID[2] << 8)  |
+                ((uint32_t)STM8L_ID[3]);
+
+    Data_Low  = ((uint32_t)STM8L_ID[4] << 24) |
+                ((uint32_t)STM8L_ID[5] << 16) |
+                ((uint32_t)STM8L_ID[6] << 8)  |
+                ((uint32_t)STM8L_ID[7]);
+}
+void write_STM8L_UniqueID(void)
+{
+     unsigned char i;
+     unsigned char JIMSTM8L_ID[12];
+
+     for(i = 0; i < 12; i ++)
      {
-          STM8L_ID[i] = *(unsigned char*)(0x4926 + i);        
+          JIMSTM8L_ID[i] = *(unsigned char*)(0x4926 + i);
      }
-     RF_SN = STM8L_ID[0];
-     RF_SN = (RF_SN << 8) | STM8L_ID[1];
-     RF_SN = (RF_SN << 8) | STM8L_ID[2];
-     RF_SN = (RF_SN << 8) | (STM8L_ID[3]&0xF0);  
+
+     FLASH_Unlock(FLASH_MemType_Data);
+
+     for (i = 0; i < 12; i++)
+        FLASH_ProgramByte(0x00001080 + i, JIMSTM8L_ID[i]);
+
+    FLASH_Lock(FLASH_MemType_Data);
 }
 
 void Delay_InIt(unsigned char clk)
@@ -238,12 +288,13 @@ void GPIO_LowPower_Config(void)
 
 main()
 {
-	int j;
-	CLK_HSICmd(ENABLE);
+    int j;
+    CLK_HSICmd(ENABLE);
     CLK_SYSCLKSourceConfig(CLK_SYSCLKSource_HSI);  
     CLK_SYSCLKDivConfig(CLK_SYSCLKDiv_1);         
     while(CLK_GetFlagStatus(CLK_FLAG_HSIRDY) == RESET);  
     Get_STM8L_UniqueID();
+    //write_STM8L_UniqueID();
     GPIO_LowPower_Config();                       
     Delay_InIt(16);                              
     AS3933_Register_Set();                        
@@ -351,17 +402,21 @@ void AS3933_WakeUp(void)
 
 void RF_SendData(unsigned char Key)
 {
-     unsigned char i,j;
+     unsigned char i,j,k;
      unsigned long MSB_Temp = 0x00800000;
      
+     unsigned long Current_Data;
+
      RF_SN =  RF_SN & 0xf0;     
      RF_SN =  RF_SN | Key;
+     RF_SN = 0x12345678;
+
      
-     for(i = 0; i < 3; i ++)   
+     for(i = 0; i < 2; i ++)
      {    
           LED_TOGGLE;
-          MSB_Temp = 0x00800000;
-          
+          MSB_Temp = 0x80000000;
+
           for(j = 0; j < 12; j ++)
           {
               RF_ON;
@@ -374,24 +429,31 @@ void RF_SendData(unsigned char Key)
           RF_OFF;
           for(j = 0; j < 10; j ++)  Delay_us2(400);     
           LED_TOGGLE;
-          for(j = 0; j < 24; j ++)             
+
+          for(k = 0; k < 2; k++)
           {
-              if((RF_SN & MSB_Temp) != 0)      
-              {
-                  RF_ON;  
-                  Delay_us2(900); 
-                  RF_OFF;
-                  Delay_us2(450); 
-              }
-              else                            
-              {
-                  RF_ON;  
-                  Delay_us2(450); 
-                  RF_OFF;
-                  Delay_us2(900);                   
-              }
-              MSB_Temp = MSB_Temp >> 1; 
-          }        
+               if(k == 0) Current_Data = Data_High;
+               else       Current_Data = Data_Low;
+               MSB_Temp = 0x80000000;
+               for(j = 0; j < 32; j ++)
+               {
+                    if((Current_Data & MSB_Temp) != 0)
+                    {
+                         RF_ON;
+                         Delay_us2(900);
+                         RF_OFF;
+                         Delay_us2(450);
+                    }
+                    else
+                    {
+                         RF_ON;
+                         Delay_us2(450);
+                         RF_OFF;
+                         Delay_us2(900);
+                    }
+                    MSB_Temp = MSB_Temp >> 1;
+               }
+          }
      }
 }
 
