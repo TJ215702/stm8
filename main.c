@@ -803,17 +803,31 @@ void main()
 
                     if (RF_set == 1) {
                         ret = Save_Combined_Key(rc522_SN, RF_UartSend);
-                        if (ret > 0)
+                        if (ret > 0) {
                             UART2_SendStr("Add 2 keys to eeprom failed!");
-                        else
+                            /* Flash red light 500ms for failed save */
+                            LP_RIGHT_ON();
+                            Delay_ms(500);
+                            LP_RIGHT_OFF();
+                        }
+                        else {
                             UART2_SendStr("Add 2 keys to eeprom!");
+                        }
                     }
                     else {
                         UART2_SendStr("433m key not learned!");
+                        /* Flash red light 500ms for no 433m key */
+                        LP_RIGHT_ON();
+                        Delay_ms(500);
+                        LP_RIGHT_OFF();
                     }
                 }
                  else {
                     UART2_SendStr("RFID key not learned!");
+                    /* Flash red light 500ms for no RFID key */
+                    LP_RIGHT_ON();
+                    Delay_ms(500);
+                    LP_RIGHT_OFF();
                 }
 
                 RF_set=0;
