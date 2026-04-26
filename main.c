@@ -626,9 +626,11 @@ void main()
                 enableInterrupts();
                 MOTOR_STOP();
                 Delay_ms(50);
+                motor_turn_off();  /* Turn off motor before halt */
                 halt();
                 Delay_ms(50);
                 Clock_Config();
+                GPIO_Config();
                 TIM4_Init();
                 Uart_Init();
                 InitRc522();
