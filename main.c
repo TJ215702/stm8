@@ -286,14 +286,14 @@ u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
 
 
 /* 20ms pulse */
-static void Motor_Pulse_Fwd_20ms(void)
+static void motor_turn_on(void)
 {
     MOTOR_FWD();
     Delay_ms(20);
     MOTOR_STOP();
 }
 
-static void Motor_Pulse_Rev_20ms(void)
+static void motor_turn_off(void)
 {
     MOTOR_REV();
     Delay_ms(20);
@@ -697,7 +697,7 @@ void main()
                 }
 
                 if(ret == 1) {
-                        Motor_Pulse_Fwd_20ms();
+                        motor_turn_on();
                         TJTW_PKE.oper_state = PKE_OPER_STA_WAIT;
                         ign_wait=0;
                 } else {
@@ -718,7 +718,7 @@ void main()
                     if(ign_wait >=10) {
                         TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                         ign_wait=0;
-                        Motor_Pulse_Rev_20ms();
+                        motor_turn_off();
                         UART2_SendStr("PKE_OPER_STA_WAIT out!");
                     }
                     else {
@@ -733,32 +733,28 @@ void main()
                     UART2_SendStr("PKE_OPER_STA_IDLE in!");
                     idle=1;
                     //TIM2_CCxCmd(TIM2_CHANNEL_2, ENABLE);
+                    TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
                 }
                 //BR_PWM(&brightness, &up);
                 //Delay_ms(10);
-                LP_RIGHT_ON(); //red
                 BR_LIGHT_ON(); //blue
                 if(TJTW_PKE.power_event_flag)
                 {
                     TJTW_PKE.power_event_flag = 0;
-					Motor_Pulse_Rev_20ms();  //Power OFF event => Motor reverse 20ms
+                    motor_turn_off();  //Power OFF event => Motor off
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                     TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-                    GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
+                    BR_LIGHT_OFF();
                     UART2_SendStr("PKE_OPER_STA_IDLE out!");
                     idle=0;
-                    LP_RIGHT_OFF();
-                    BR_LIGHT_OFF();
                 }
                 else if (!IGN_IS_ON()) {  //ign off
-                    Motor_Pulse_Rev_20ms();
+                    motor_turn_off();
                     TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
                     TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-                    GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
+                    BR_LIGHT_OFF();
                     UART2_SendStr("IGN_OFF PKE_OPER_STA_IDLE out!");
                     idle=0;
-                    LP_RIGHT_OFF();
-                    BR_LIGHT_OFF();
                 }
                 break;
             case PKE_OPER_STA_LEARN:
