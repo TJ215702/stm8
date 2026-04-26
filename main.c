@@ -42,12 +42,12 @@ void Get_STM8L_UniqueID(void)
      unsigned char i;
      uint16_t crc_result;
      
-     STM8L_ID[0] = *(unsigned char*)(0x4926); // X
-     STM8L_ID[1] = *(unsigned char*)(0x4928); // Y
-     STM8L_ID[2] = *(unsigned char*)(0x492B); // LOT 1
-     STM8L_ID[3] = *(unsigned char*)(0x492C); // LOT 2
-     STM8L_ID[4] = *(unsigned char*)(0x492D); // LOT 3
-     STM8L_ID[5] = *(unsigned char*)(0x492E); // LOT 4
+     STM8L_ID[0] = 0x54; //T
+     STM8L_ID[1] = 0x4A; // J
+     STM8L_ID[2] = *(unsigned char*)(0x4927); // X
+     STM8L_ID[3] = *(unsigned char*)(0x4929); // Y
+     STM8L_ID[4] = *(unsigned char*)(0x492a); // Wafer
+     STM8L_ID[5] = *(unsigned char*)(0x492b); // LOT 0
 
      crc_result = Calculate_CRC16(STM8L_ID, 6);
 
@@ -411,7 +411,7 @@ void RF_SendData(unsigned char Key)
      RF_SN =  RF_SN | Key;
      RF_SN = 0x12345678;
 
-     
+     Delay_us2(STM8L_ID[3]); //random delay time
      for(i = 0; i < 2; i ++)
      {    
           LED_TOGGLE;
