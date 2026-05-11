@@ -22,6 +22,22 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm8s_tim1.h"
 
+
+#define ENABLE_TIM1_OC2_FUNCTIONS       0  /* Disable OC2/OC3/OC4 init functions */
+#define ENABLE_TIM1_OC3_FUNCTIONS       0
+#define ENABLE_TIM1_OC4_FUNCTIONS       0
+#define ENABLE_TIM1_BDTR_CONFIG         0  /* Disable Break/Dead-time config */
+#define ENABLE_TIM1_IC_FUNCTIONS        0  /* Disable Input Capture functions */
+#define ENABLE_TIM1_PWMI_CONFIG         0  /* Disable PWM Input config */
+#define ENABLE_TIM1_IT_CONFIG           0  /* Disable IT config */
+#define ENABLE_TIM1_CLK_CONFIG          0  /* Disable clock config functions */
+#define ENABLE_TIM1_ETR_FUNCTIONS       0  /* Disable ETR/External trigger */
+#define ENABLE_TIM1_SLAVE_FUNCTIONS     0  /* Disable slave mode functions */
+#define ENABLE_TIM1_ENCODER_FUNCTIONS   0  /* Disable encoder functions */
+#define ENABLE_TIM1_PRESCALER_CONFIG    0  /* Disable prescaler config */
+#define ENABLE_TIM1_COUNTER_MODE_CONFIG 0  /* Disable counter mode config */
+#define ENABLE_TIM1_FORCED_OC_FUNCTIONS 0  /* Disable forced OC functions */
+
 /** @addtogroup STM8S_StdPeriph_Driver
   * @{
   */
@@ -191,6 +207,7 @@ void TIM1_OC1Init(TIM1_OCMode_TypeDef TIM1_OCMode,
     TIM1->CCR1L = (uint8_t)(TIM1_Pulse);
 }
 
+#if ENABLE_TIM1_OC2_FUNCTIONS
 /**
   * @brief  Initializes the TIM1 Channel2 according to the specified parameters.
   * @param  TIM1_OCMode specifies the Output Compare mode from
@@ -255,7 +272,9 @@ void TIM1_OC2Init(TIM1_OCMode_TypeDef TIM1_OCMode,
     TIM1->CCR2L = (uint8_t)(TIM1_Pulse);
 
 }
+#endif /* ENABLE_TIM1_OC2_FUNCTIONS */
 
+#if ENABLE_TIM1_OC3_FUNCTIONS
 /**
   * @brief  Initializes the TIM1 Channel3 according to the specified parameters.
   * @param  TIM1_OCMode specifies the Output Compare mode  from 
@@ -319,7 +338,9 @@ void TIM1_OC3Init(TIM1_OCMode_TypeDef TIM1_OCMode,
     TIM1->CCR3L = (uint8_t)(TIM1_Pulse);
 
 }
+#endif /* ENABLE_TIM1_OC3_FUNCTIONS */
 
+#if ENABLE_TIM1_OC4_FUNCTIONS
 /**
   * @brief  Initializes the TIM1 Channel4 according to the specified parameters.
   * @param  TIM1_OCMode specifies the Output Compare mode  from 
@@ -370,7 +391,9 @@ void TIM1_OC4Init(TIM1_OCMode_TypeDef TIM1_OCMode,
     TIM1->CCR4L = (uint8_t)(TIM1_Pulse);
 
 }
+#endif /* ENABLE_TIM1_OC4_FUNCTIONS */
 
+#if ENABLE_TIM1_BDTR_CONFIG
 /**
   * @brief  Configures the Break feature, dead time, Lock level, the OSSI,
   *         and the AOE(automatic output enable).
@@ -407,7 +430,9 @@ void TIM1_BDTRConfig(TIM1_OSSIState_TypeDef TIM1_OSSIState,
                             (uint8_t)TIM1_AutomaticOutput));
 
 }
+#endif /* ENABLE_TIM1_BDTR_CONFIG */
 
+#if ENABLE_TIM1_IC_FUNCTIONS
 /**
   * @brief  Initializes the TIM1 peripheral according to the specified parameters.
   * @param  TIM1_Channel specifies the input capture channel from TIM1_Channel_TypeDef.
@@ -472,7 +497,9 @@ void TIM1_ICInit(TIM1_Channel_TypeDef TIM1_Channel,
     }
 
 }
+#endif /* ENABLE_TIM1_IC_FUNCTIONS */
 
+#if ENABLE_TIM1_PWMI_CONFIG
 /**
   * @brief  Configures the TIM1 peripheral in PWM Input Mode according to the 
   *         specified parameters.
@@ -553,6 +580,7 @@ void TIM1_PWMIConfig(TIM1_Channel_TypeDef TIM1_Channel,
         TIM1_SetIC1Prescaler(TIM1_ICPrescaler);
     }
 }
+#endif /* ENABLE_TIM1_PWMI_CONFIG */
 
 /**
   * @brief  Enables or disables the TIM1 peripheral.
@@ -598,7 +626,7 @@ void TIM1_CtrlPWMOutputs(FunctionalState NewState)
         TIM1->BKR &= (uint8_t)(~TIM1_BKR_MOE);
     }
 }
-
+#if ENABLE_TIM1_IT_CONFIG
 /**
   * @brief  Enables or disables the specified TIM1 interrupts.
   * @param  NewState new state of the TIM1 peripheral.
@@ -633,7 +661,9 @@ void TIM1_ITConfig(TIM1_IT_TypeDef  TIM1_IT, FunctionalState NewState)
         TIM1->IER &= (uint8_t)(~(uint8_t)TIM1_IT);
     }
 }
+#endif /* ENABLE_TIM1_IT_CONFIG */
 
+#if ENABLE_TIM1_CLK_CONFIG
 /**
   * @brief  Configures the TIM1 internal Clock.
   * @param  None
@@ -644,7 +674,9 @@ void TIM1_InternalClockConfig(void)
     /* Disable slave mode to clock the prescaler directly with the internal clock */
     TIM1->SMCR &= (uint8_t)(~TIM1_SMCR_SMS);
 }
+#endif /* ENABLE_TIM1_CLK_CONFIG */
 
+#if ENABLE_TIM1_ETR_FUNCTIONS
 /**
   * @brief  Configures the TIM1 External clock Mode1.
   * @param  TIM1_ExtTRGPrescaler specifies the external Trigger Prescaler.
@@ -775,7 +807,9 @@ void TIM1_TIxExternalClockConfig(TIM1_TIxExternalCLK1Source_TypeDef TIM1_TIxExte
     /* Select the External clock mode1 */
     TIM1->SMCR |= (uint8_t)(TIM1_SLAVEMODE_EXTERNAL1);
 }
+#endif /* ENABLE_TIM1_ETR_FUNCTIONS */
 
+#if ENABLE_TIM1_SLAVE_FUNCTIONS
 /**
   * @brief  Selects the TIM1 Input Trigger source.
   * @param   TIM1_InputTriggerSource specifies Input Trigger source.
@@ -959,7 +993,9 @@ void TIM1_SelectMasterSlaveMode(FunctionalState NewState)
         TIM1->SMCR &= (uint8_t)(~TIM1_SMCR_MSM);
     }
 }
+#endif /* ENABLE_TIM1_SLAVE_FUNCTIONS */
 
+#if ENABLE_TIM1_ENCODER_FUNCTIONS
 /**
   * @brief  Configures the TIM1 Encoder Interface.
   * @param   TIM1_EncoderMode specifies the TIM1 Encoder Mode.
@@ -1020,7 +1056,9 @@ void TIM1_EncoderInterfaceConfig(TIM1_EncoderMode_TypeDef TIM1_EncoderMode,
                             | (uint8_t) CCMR_TIxDirect_Set);
 
 }
+#endif /* ENABLE_TIM1_ENCODER_FUNCTIONS */
 
+#if ENABLE_TIM1_PRESCALER_CONFIG
 /**
   * @brief  Configures the TIM1 Prescaler.
   * @param   Prescaler specifies the Prescaler Register value
@@ -1046,7 +1084,9 @@ void TIM1_PrescalerConfig(uint16_t Prescaler,
     TIM1->EGR = (uint8_t)TIM1_PSCReloadMode;
 
 }
+#endif /* ENABLE_TIM1_PRESCALER_CONFIG */
 
+#if ENABLE_TIM1_COUNTER_MODE_CONFIG
 /**
   * @brief  Specifies the TIM1 Counter Mode to be used.
   * @param   TIM1_CounterMode specifies the Counter Mode to be used
@@ -1068,8 +1108,9 @@ void TIM1_CounterModeConfig(TIM1_CounterMode_TypeDef TIM1_CounterMode)
     TIM1->CR1 = (uint8_t)((uint8_t)(TIM1->CR1 & (uint8_t)((uint8_t)(~TIM1_CR1_CMS) & (uint8_t)(~TIM1_CR1_DIR)))
                           | (uint8_t)TIM1_CounterMode);
 }
+#endif /* ENABLE_TIM1_COUNTER_MODE_CONFIG */
 
-
+#if ENABLE_TIM1_FORCED_OC_FUNCTIONS
 /**
   * @brief  Forces the TIM1 Channel1 output waveform to active or inactive level.
   * @param   TIM1_ForcedAction specifies the forced Action to be set to the output waveform.
@@ -1146,6 +1187,7 @@ void TIM1_ForcedOC4Config(TIM1_ForcedAction_TypeDef TIM1_ForcedAction)
     TIM1->CCMR4  =  (uint8_t)((uint8_t)(TIM1->CCMR4 & (uint8_t)(~TIM1_CCMR_OCM)) 
                               | (uint8_t)TIM1_ForcedAction);
 }
+#endif /* ENABLE_TIM1_FORCED_OC_FUNCTIONS */
 
 
 /**
