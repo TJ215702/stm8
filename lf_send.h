@@ -58,9 +58,11 @@ extern void Delay_us(unsigned int nus);
 extern void LF_ClockOccurs(unsigned char LF_Pll);
 extern void LF_PLL_SET(unsigned char LF_Pll);
 extern void Timecalculate(void);	        
-extern void LF_SendData(unsigned char R6_Dat,
-                        unsigned char R5_Dat,
-                        unsigned char Patt16_32,
-                        unsigned char LF_Send_CHx);
+void LF_SendData(unsigned char R6_Dat,
+                 unsigned char R5_Dat,
+                 unsigned char Patt16_32,
+                 unsigned char LF_Send_CHx,
+                 unsigned char dat1,
+                 unsigned char dat2);
 
 #endif

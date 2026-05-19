@@ -7,6 +7,7 @@
 #include "uart.h"
 #include "rc522.h"
 #include "lf_send.h"
+#include <string.h>
 
 
 unsigned char RFFull = 0;
@@ -14,17 +15,21 @@ unsigned char RFBit;
 unsigned char LL_w = 0;
 unsigned char First_flag = 0;
 unsigned char Buff_B[8];
-unsigned char RF_UartSend[8];
+unsigned char RF_UartSend[10];
+unsigned char secure_key[10];
 u8 RF_set=0;
 unsigned char BitCount;
 unsigned char Time_1ms = 0;
-unsigned char Time_Nms = 0;
 
-#define RF_NUM       5
-#define RF_Byte_LEN  3
+/* Key cache in RAM (loaded from EEPROM before halt) */
+uint8_t cached_key_count = 0;
+uint8_t cached_keys[5][16];  // 5 x 16 bytes
+
 #define RF_LEN       64
+const uint8_t Secret_Key[8] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0};
 
-void RF_Remote(void);
+
+void RF_Remote(uint8_t);
 
 enum pke_oper_state {
     PKE_OPER_STA_POWER_OFF,
@@ -65,12 +70,7 @@ volatile struct PKE_config {
 
 #define RF_DATA_LOW()        (GPIO_ReadInputPin(GPIOD, GPIO_PIN_0) == RESET)   //RESET=0
 
-#define RC522KEY_COUNT_ADDR   0x00004100
-#define RC522KEY_START_ADDR   0x00004110
-#define RC522KEY_SIZE         4
-#define MAX_RC522KEY_NUM      5
-
-#define KEY_BLOCK_SIZE       16    // 4 (RFID) + 8 (完整 Buff_B, 含 CRC)
+#define KEY_BLOCK_SIZE       16    // 4 (RFID) + 8 (full Buff_B, include CRC) + 2 (wake up)
 #define MAX_KEY_NUM          5
 #define KEY_DATA_START_ADDR  0x00004110
 #define KEY_COUNT_ADDR       0x00004100
@@ -89,20 +89,17 @@ const uint8_t mcu_user_config[MCU_REG_NUM] =
     0x00,0x00,
 };
 
-const unsigned int wCRCTalbeAbs[] =
-{
-    0x0000, 0xCC01, 0xD801, 0x1400,
-    0xF001, 0x3C00, 0x2800, 0xE401,
-    0xA001, 0x6C00, 0x7800, 0xB401,
-    0x5000, 0x9C01, 0x8801, 0x4400,
-};
-
 u8 Tx_Buffer[] = "RFID---test";
 #define  BufferSize (countof(Tx_Buffer)-1)
 
-uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len) {
+uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len, uint8_t ran) {
     uint16_t crc = 0xFFFF;
     uint8_t i, j;
+    if (ran == 1)
+        crc = 0xFFFF;
+    else if (ran == 2)
+        crc = 0x1234;
+
     for (i = 0; i < len; i++) {
         crc ^= (uint16_t)ptr[i] << 8;
         for (j = 0; j < 8; j++) {
@@ -114,6 +111,20 @@ uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len) {
         }
     }
     return crc;
+}
+
+void Simple_Crypt(uint8_t *data, uint8_t len) {
+    uint8_t i;
+    for (i = 0; i < len; i++) {
+        // 1. encrypt XOR with  Secret_Key
+        data[i] ^= Secret_Key[i % 8];
+
+        // 2. use not to increase complexity
+        data[i] = ~data[i];
+
+     // 3. (option) prevent consecutive identical characters.
+        data[i] ^= i;
+    }
 }
 
 void Clock_Config(void)
@@ -153,70 +164,6 @@ void Clear_PKE_EEPROM(void)
     FLASH_Lock(FLASH_MEMTYPE_DATA);
 }
 
-u8 Rebuild_KeyCount(void)
-{
-    u8 i, real_count = 0;
-    uint16_t addr;
-
-    for (i = 0; i < MAX_RC522KEY_NUM; i++)
-    {
-        addr = RC522KEY_START_ADDR + (i * RC522KEY_SIZE);
-        FLASH_Unlock(FLASH_MEMTYPE_DATA);
-        if (FLASH_ReadByte(addr) != 0x00 ||
-            FLASH_ReadByte(addr+1) != 0x00 ||
-            FLASH_ReadByte(addr+2) != 0x00 ||
-            FLASH_ReadByte(addr+3) != 0x00)
-        {
-            real_count++;
-        }
-        FLASH_Lock(FLASH_MEMTYPE_DATA);
-    }
-
-    return real_count;
-}
-
-void Write_EEpeomData(unsigned char *rc522)
-{
-    unsigned char i;
-    u8 num, match;
-    uint16_t write_addr;
-    uint16_t read_addr;
-
-    FLASH_Unlock(FLASH_MEMTYPE_DATA);
-    num = FLASH_ReadByte(RC522KEY_COUNT_ADDR);
-    if (num >= MAX_RC522KEY_NUM)
-    {
-        num = Rebuild_KeyCount();
-        FLASH_ProgramByte(RC522KEY_COUNT_ADDR, num);
-        FLASH_Lock(FLASH_MEMTYPE_DATA);
-        return;
-    }
-    match=0;
-    for (i = 0; i < num; i++)
-    {
-        read_addr = RC522KEY_START_ADDR + (i * RC522KEY_SIZE);
-        if ((FLASH_ReadByte(read_addr) == rc522[0]) &&
-            (FLASH_ReadByte(read_addr + 1) == rc522[1]) &&
-            (FLASH_ReadByte(read_addr + 2) == rc522[2]) &&
-            (FLASH_ReadByte(read_addr + 3) == rc522[3]))
-        {
-            match = 1;
-            FLASH_Lock(FLASH_MEMTYPE_DATA);
-            return;
-        }
-    }
-
-    write_addr = RC522KEY_START_ADDR + (num * RC522KEY_SIZE);
-
-    for (i = 0; i < RC522KEY_SIZE; i++)
-        FLASH_ProgramByte(write_addr  + i, rc522[i]);
-
-
-    num++;
-    FLASH_ProgramByte(RC522KEY_COUNT_ADDR, num);
-    FLASH_Lock(FLASH_MEMTYPE_DATA);
-}
-
 u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
     uint8_t num, i, k;
     uint16_t addr;
@@ -229,14 +176,14 @@ u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
     if (num > MAX_KEY_NUM)
         num = 0;
 
-    // --- 第一部分：檢查是否已存在 ---
+    // --- first：check exist or not ---
     for (i = 0; i < num; i++) {
         addr = KEY_DATA_START_ADDR + (i * KEY_BLOCK_SIZE);
 
         rfid_match = 1;
         rf433_match = 1;
 
-        // 檢查 RFID 是否重複 (4 bytes)
+        // check RFID is exist or not(4 bytes)
         for (k = 0; k < 4; k++) {
             if (FLASH_ReadByte(addr + k) != rfid[k]) {
                 rfid_match = 0;
@@ -244,7 +191,7 @@ u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
             }
         }
 
-        // 檢查 433M 是否重複 (8 bytes, 含 CRC)
+        // check 433M is exist or not (8 bytes, 含 CRC)
         for (k = 0; k < 8; k++) {
             if (FLASH_ReadByte(addr + 4 + k) != rf433_full[k]) {
                 rf433_match = 0;
@@ -252,7 +199,7 @@ u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
             }
         }
 
-        // 如果其中任一個已經存在，就放棄寫入並退出
+        // if any of them exist, abandon the write operation
         if (rfid_match || rf433_match) {
             UART2_SendStr("Key already exists! Skip saving.");
             FLASH_Lock(FLASH_MEMTYPE_DATA);
@@ -269,8 +216,8 @@ u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
     for (k = 0; k < 4; k++) {
         FLASH_ProgramByte(addr + k, rfid[k]);
     }
-    // 寫入 433MHz (含 CRC 共 8 bytes)
-    for (k = 0; k < 8; k++) {
+    // 寫入 433MHz (含 CRC 共 10 bytes) 最後2byte是8byte raw key的crc也是新的喚醒碼
+    for (k = 0; k < 10; k++) {
         FLASH_ProgramByte(addr + 4 + k, rf433_full[k]);
     }
 
@@ -298,37 +245,6 @@ static void motor_turn_off(void)
     MOTOR_REV();
     Delay_ms(20);
     MOTOR_STOP();
-}
-
-void Read_EEpeomData_125(void)
-{
-    unsigned int x;
-    unsigned char EEprom_Buff[SET_BUFF_MAX];
-
-    FLASH_Unlock(FLASH_MEMTYPE_DATA);
-    for (x = 0; x < SET_BUFF_MAX; x++)
-        EEprom_Buff[x] = FLASH_ReadByte(0x00004000 + x);
-    FLASH_Lock(FLASH_MEMTYPE_DATA);
-
-    if ((EEprom_Buff[0] == 0xA5) && (EEprom_Buff[1] == 0x5A))
-    {
-        for (x = 0; x < SET_BUFF_MAX; x++)
-            Set_Buff[x] = EEprom_Buff[x];
-        LF_PLL_SET(LF_PLL);
-    }
-
-}
-
-void Write_EEpeomData_125(void)
-{
-    unsigned char i;
-
-    FLASH_Unlock(FLASH_MEMTYPE_DATA);
-
-    for (i = 0; i < MCU_REG_NUM; i++)
-        FLASH_ProgramByte(0x00004000 + i, mcu_user_config[i]);
-
-    FLASH_Lock(FLASH_MEMTYPE_DATA);
 }
 
 u8 Check_Combined_433M(uint8_t *target_rf433) {
@@ -385,6 +301,50 @@ u8 Check_Combined_RFID(uint8_t *target_rfid) {
     return 0;
 }
 
+/* Load all keys from EEPROM to RAM cache before halt */
+void Load_Keys_To_Cache(void) {
+    uint8_t i, k;
+    uint16_t addr;
+
+    FLASH_Unlock(FLASH_MEMTYPE_DATA);
+
+    /* Read key count */
+    cached_key_count = FLASH_ReadByte(KEY_COUNT_ADDR);
+    if (cached_key_count > MAX_KEY_NUM)
+        cached_key_count = MAX_KEY_NUM;
+
+    /* Load all keys (RFID + secure_key) to RAM */
+    for (i = 0; i < cached_key_count; i++) {
+        addr = KEY_DATA_START_ADDR + (i * KEY_BLOCK_SIZE);
+        for (k = 0; k < KEY_BLOCK_SIZE; k++) {
+            cached_keys[i][k] = FLASH_ReadByte(addr + k);
+        }
+    }
+
+    FLASH_Lock(FLASH_MEMTYPE_DATA);
+    UART2_SendStr("Keys loaded to RAM cache!");
+}
+
+/* Check 433M key against cached keys in RAM */
+u8 Check_Combined_433M_Cached(uint8_t *target_rf433) {
+    uint8_t i, k, match;
+
+    for (i = 0; i < cached_key_count; i++) {
+        match = 1;
+        /* Compare from offset +4 (8 bytes of secure_key with CRC) */
+        for (k = 0; k < 8; k++) {
+            if (cached_keys[i][4 + k] != target_rf433[k]) {
+                match = 0;
+                break;
+            }
+        }
+        if (match) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void GPIO_Config(void)
 {
 
@@ -438,21 +398,37 @@ void TIM2_Init(void)
 }
 
 
-void RF_Remote(void)
+void RF_Remote(uint8_t level)
 {
-    unsigned char i,j;
+    unsigned char i;
     const char hex_chars[] = "0123456789ABCDEF";
     char hex_out[4];
-    uint16_t received_crc, calculated_crc;
+    uint16_t received_crc, calculated_crc, final_crc;
     disableInterrupts();
     for (i = 0; i < 8; i++) {
         RF_UartSend[i] = Buff_B[i];
     }
     received_crc = ((uint16_t)RF_UartSend[6] << 8) | (uint16_t)RF_UartSend[7];
-    calculated_crc = Calculate_CRC16(RF_UartSend, 6);
+    calculated_crc = Calculate_CRC16(RF_UartSend, 6,1);
 
     RFFull = 0;
-    if (calculated_crc == received_crc && RF_UartSend[0] == 0x54 && RF_UartSend[1] == 0x4A) {
+    if (level == 2) {
+        /* POWER_ON: key should return secure key directly.
+           Only validate and print received packet; do not derive again. */
+        if (calculated_crc == received_crc ) {
+            UART2_SendString("\r\nRF Data: ", 11);
+            for (i = 0; i < 8; i++) {
+                uint8_t val = RF_UartSend[i];
+                hex_out[0] = hex_chars[(val >> 4) & 0x0F];
+                hex_out[1] = hex_chars[val & 0x0F];
+                hex_out[2] = ' ';
+                UART2_SendString((unsigned char*)hex_out, 3);
+            }
+            RF_set = 1;
+        } else {
+            UART2_SendString("\r\nRF Data CRC/Header Error in POWER_ON! ", 40);
+        }
+    } else if (calculated_crc == received_crc && RF_UartSend[0] == 0x54 && RF_UartSend[1] == 0x4A) {
         RF_set = 1;
         UART2_SendString("\r\nRF Data: ", 11);
         for (i = 0; i < 8; i++) {
@@ -462,6 +438,20 @@ void RF_Remote(void)
             hex_out[2] = ' ';
             UART2_SendString((unsigned char*)hex_out, 3);
         }
+        if(level ==1) {
+            calculated_crc = Calculate_CRC16(RF_UartSend, 8, 2);
+            RF_UartSend[8] = (uint8_t)(calculated_crc >> 8);   // CRC High
+            RF_UartSend[9] = (uint8_t)(calculated_crc & 0xFF); // CRC Low
+            memcpy(secure_key, RF_UartSend, 6);
+            Simple_Crypt(secure_key, 6);
+            final_crc = Calculate_CRC16(secure_key, 6, 1);
+            secure_key[6] = (uint8_t)(final_crc >> 8);
+            secure_key[7] = (uint8_t)(final_crc & 0xFF);
+            secure_key[8] = (uint8_t)(calculated_crc >> 8);   // CRC High
+            secure_key[9] = (uint8_t)(calculated_crc & 0xFF); // CRC Low
+
+        }
+
     } else {
         if (calculated_crc != received_crc) {
             UART2_SendString("\r\nRF Data CRC Error! ", 22);
@@ -487,7 +477,6 @@ void RF_Remote(void)
     if (Time_1ms >= 10)
     {
         Time_1ms = 0;
-        Time_Nms++;
 
         /* LF send timer countdown (clamp to 0) */
         if ((LF_ENABLE == 1) && (LF_Send_Tim > 0))
@@ -577,6 +566,7 @@ void RF_Remote(void)
 void main()
 {
     int i,ret,idle;
+    uint8_t cfg_idx;
     uint8_t ign_wait = 0;
     u8 rfid_set=0;
     int wait_count = 0;
@@ -602,13 +592,18 @@ void main()
     //Clear_PKE_EEPROM();
 
     LF_ClockOccurs(125);
-    Write_EEpeomData_125();
-    Read_EEpeomData_125();
+    for (cfg_idx = 0; cfg_idx < MCU_REG_NUM; cfg_idx++) {
+        Set_Buff[cfg_idx] = mcu_user_config[cfg_idx];
+    }
+    LF_PLL_SET(LF_PLL);
 
     Delay_InIt(16);
     TIM2_Init();   //need ro mask  TIM2_PWM_Config()
 
     enableInterrupts();
+
+    /* Load all keys to RAM cache before entering main loop */
+    Load_Keys_To_Cache();
 		
     UART2_SendStr("system start!");
 		
@@ -638,6 +633,8 @@ void main()
 
                 if(TJTW_PKE.power_event_flag) {
                     TJTW_PKE.power_event_flag = 0;
+                    /* Reload keys to cache after wake up */
+                    Load_Keys_To_Cache();
                     if(GPIO_ReadInputPin(GPIOA, GPIO_PIN_2))
                     {
                         TJTW_PKE.oper_state = PKE_OPER_STA_LEARN;
@@ -655,36 +652,10 @@ void main()
                 enableInterrupts();
                 i=0;
                 ret=0;
-                UART2_SendStr("Check 433m key!");
-                wait_count=0;
-                while(i<2) {
-                    while(wait_count < 2) {
-                        LF_SendData(PATTERN1,PATTERN2,PATTREN_BIT,LF_SEND_CH1);
-                        Delay_ms(250);
-                        if (RFFull) {
-                            RF_Remote();
-                            if (Check_Combined_433M(RF_UartSend)) {
-                                UART2_SendStr("433m key matched!");
-                                ret=1;
-                                wait_count = 10;  /* Exit inner loop */
-                                break;
-                            }
-                            else {
-                                UART2_SendStr("433m key not matched, waiting for next key...");
-                                RFFull = 0;  /* Reset flag, continue waiting for other keys */
-                            }
-                        }
-                        wait_count++;
-                    }
 
-                    if(ret == 1) break;  /* Found matching key, exit outer loop */
-                    wait_count = 0;      /* Reset counter for next round */
-                    i++;
-                }
-
+                UART2_SendStr("check RFID key!");
                 if (ret == 0) {
-                    UART2_SendStr("433m key not matched find RFID TAG!");
-                    for(i=0;i<10;i++) {
+                    for(i=0;i<3;i++) {
                         Delay_ms(100);
 
                         showcard(Tx_Buffer,&rfid_set,rc522_SN);
@@ -695,6 +666,36 @@ void main()
                             i=50;
                             ret=Check_Combined_RFID(rc522_SN);
                         }
+                    }
+                }
+
+                if (ret == 0) {
+                    UART2_SendStr("Check 433m key!");
+                    i=0;
+                    wait_count=0;
+                    while(i < cached_key_count) {
+                        while(wait_count < 3) {
+                            LF_SendData(cached_keys[i][12],cached_keys[i][13],PATTREN_BIT,LF_SEND_CH1, 0x01, 0x01);
+                            Delay_ms(200);
+                            if (RFFull) {
+                                RF_Remote(2);
+                                if (Check_Combined_433M_Cached(RF_UartSend)) {
+                                    UART2_SendStr("433m key matched!");
+                                    ret=1;
+                                    wait_count = 10;  /* Exit inner loop */
+                                    break;
+                                }
+                                else {
+                                    UART2_SendStr("433m key not matched, waiting for next key...");
+                                    RFFull = 0;  /* Reset flag, continue waiting for other keys */
+                                }
+                            }
+                            wait_count++;
+                        }
+
+                        if(ret == 1) break;  /* Found matching key, exit outer loop */
+                        wait_count = 0;      /* Reset counter for next round */
+                        i++;
                     }
                 }
 
@@ -786,12 +787,12 @@ void main()
                     i=0;
                     while(i<16) {
                         BR_LIGHT_ON(); //blue
-                        LF_SendData(PATTERN1,PATTERN2,PATTREN_BIT,LF_SEND_CH1);
+                        LF_SendData(0xc3,0x3a,PATTREN_BIT,LF_SEND_CH1, 0x01, 0x01);
                         Delay_ms(100);
                         BR_LIGHT_OFF();
                         Delay_ms(150);
                         if (RFFull) {
-                            RF_Remote();
+                            RF_Remote(1);
                             UART2_SendStr("Get 433m key!");
                             BR_LIGHT_OFF();
                             break;
@@ -800,7 +801,8 @@ void main()
                     }
 
                     if (RF_set == 1) {
-                        ret = Save_Combined_Key(rc522_SN, RF_UartSend);
+                        LF_SendData(0xc3,0x3a, PATTREN_BIT, LF_SEND_CH1, RF_UartSend[8], RF_UartSend[9]);
+                        ret = Save_Combined_Key(rc522_SN, secure_key);
                         if (ret > 0) {
                             UART2_SendStr("Add 2 keys to eeprom failed!");
                             /* Flash red light 500ms for failed save */
@@ -810,6 +812,8 @@ void main()
                         }
                         else {
                             UART2_SendStr("Add 2 keys to eeprom!");
+                            /* Reload keys to cache after new key saved */
+                            Load_Keys_To_Cache();
                         }
                     }
                     else {

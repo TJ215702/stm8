@@ -265,7 +265,9 @@ void Pattern(unsigned char R6_Dat,
 void LF_SendData(unsigned char R6_Dat,
                  unsigned char R5_Dat,
                  unsigned char Patt16_32,
-                 unsigned char LF_Send_CHx)
+                 unsigned char LF_Send_CHx,
+                 unsigned char dat1,
+                 unsigned char dat2)
 {
     unsigned char i,j;
     unsigned char Data_Buff[20];    
@@ -273,22 +275,27 @@ void LF_SendData(unsigned char R6_Dat,
     if((LFBIT_NxRC < 4) || (LFBIT_NxRC > 32))
         return;
 	
-    Data_Buff[0] = ACTIVE_NUM + 2;
-    Data_Buff[1] = DEVICE_ID;
-    Data_Buff[ACTIVE_NUM + 2] = 0;
+    // Data_Buff[0] = ACTIVE_NUM + 2;
+    // Data_Buff[1] = DEVICE_ID;
+    // Data_Buff[ACTIVE_NUM + 2] = 0;
     
-    for(i = 0; i < ACTIVE_NUM; i++)
-        Data_Buff[i+2] = Set_Buff[i+16];
+    // for(i = 0; i < ACTIVE_NUM; i++)
+    //     Data_Buff[i+2] = Set_Buff[i+16];
     
-    for(i = 0; i < ACTIVE_NUM; i++)
-        Data_Buff[ACTIVE_NUM + 2] += Set_Buff[i+16];
+    // for(i = 0; i < ACTIVE_NUM; i++)
+    //     Data_Buff[ACTIVE_NUM + 2] += Set_Buff[i+16];
+
+    Data_Buff[0] =0x03;
+    Data_Buff[1] = dat1;
+    Data_Buff[2] = dat2;
+    Data_Buff[3] = 0x01;
     
     disableInterrupts();
     
     CarrierBurst(LF_Send_CHx);	
     Pattern(R6_Dat,R5_Dat,Patt16_32,LF_Send_CHx);
     
-    for(i = 0; i < ACTIVE_NUM+3; i++)
+    for(i = 0; i < 4; i++)
     {
         for(j = 0; j < 8; j++)
         {
