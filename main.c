@@ -121,6 +121,16 @@ void Get_STM8L_UniqueID(void)
      secure_key[6] = (uint8_t)(final_crc >> 8);
      secure_key[7] = (uint8_t)(final_crc & 0xFF);
 
+       FLASH_Unlock(FLASH_MemType_Data);
+
+       // write secure key data (8 bytes) from 0x1020 to 0x1027
+       for (i = 0; i < 8; i++)
+       {
+            FLASH_ProgramByte(0x1020 + i, secure_key[i]);
+       }
+
+       FLASH_Lock(FLASH_MemType_Data);
+
      secureData_High = ((uint32_t)secure_key[0] << 24) |
                         ((uint32_t)secure_key[1] << 16) |
                         ((uint32_t)secure_key[2] << 8)  |
@@ -333,7 +343,7 @@ void AS3933_Register_Set(uint8_t pattern_low, uint8_t pattern_high)
     AS3933_SPI_Write_Byte(0x10,0x00);  //turn off L2 test mode
     
     AS3933_SPI_Write_Byte(0x13,0x18);   //set R19(L3)  12pf ->  16+8=24  25*0.5=12
-    Delay_us(1000);                     
+    Delay_us(1000);
     AS3933_SPI_Write_Byte(0x10,0x44);	//turn on L3 test mode
     Delay_us(10000);                  
     AS3933_SPI_Write_Byte(0x10, 0x00);  //turn off L3 test mode
@@ -374,7 +384,8 @@ main()
     CLK_HSICmd(ENABLE);
     CLK_SYSCLKSourceConfig(CLK_SYSCLKSource_HSI);  
     CLK_SYSCLKDivConfig(CLK_SYSCLKDiv_1);         
-    while(CLK_GetFlagStatus(CLK_FLAG_HSIRDY) == RESET);  
+    while(CLK_GetFlagStatus(CLK_FLAG_HSIRDY) == RESET);
+    //clear_STM8L_UniqueID();
     Get_STM8L_UniqueID();
     GPIO_LowPower_Config();                       
     Delay_InIt(16);                              
@@ -494,19 +505,32 @@ void AS3933_WakeUp(void)
           RSSI_Date[1] = AS3933_SPI_Read_Byte(0x0b);
           RSSI_Date[2] = AS3933_SPI_Read_Byte(0x0c);
 
-          WakeData_Flag = 1;
-          if (Wake_Date[0] == 0x03 && Wake_Date[1] == STM8L_ID[8] && Wake_Date[2] == STM8L_ID[9] && Wake_Date[3] == 0x01)
-               WakeData_Flag = 1;
-          else if (Wake_Date[0] == 0x03 && Wake_Date[1] == STM8L_ID[8] && Wake_Date[2] == STM8L_ID[9] && Wake_Date[3] == 0x01) {
+          WakeData_Flag = 0;
+
+          // Binding confirm: 0x03, crc1, crc2, 0x01 => bind and return secure key.
+          if (Wake_Date[0] == 0x03 && Wake_Date[1] == STM8L_ID[8] && Wake_Date[2] == STM8L_ID[9] && Wake_Date[3] == 0x01) {
                WakeData_Flag = 2;
-               if(key_use != 0x5a) {
+               if(key_use != REGISTRATION_MARK_VALUE) {
                     AS3933_SetWakeupPattern(STM8L_ID[9], STM8L_ID[8]);
-                    // Write registration mark in FLASH
                     FLASH_Unlock(FLASH_MemType_Data);
                     FLASH_ProgramByte(REGISTRATION_MARK_ADDR, REGISTRATION_MARK_VALUE);
                     FLASH_Lock(FLASH_MemType_Data);
-                    key_use = 0x5a;
+                    key_use = REGISTRATION_MARK_VALUE;
                }
+          }
+          // Registration request: 0x03, 0x01, 0x01, 0x01 => return raw key only before binding.
+          else if ((key_use != REGISTRATION_MARK_VALUE) &&
+                   (Wake_Date[0] == 0x03) &&
+                   (Wake_Date[1] == 0x01) &&
+                   (Wake_Date[2] == 0x01) &&
+                   (Wake_Date[3] == 0x01))
+          {
+               WakeData_Flag = 1;
+          }
+          // After binding, any valid wake under private wake pattern returns secure key only.
+          else if (key_use == REGISTRATION_MARK_VALUE)
+          {
+               WakeData_Flag = 2;
           }
           AS3933_COMM(0xC0);
      }
