@@ -395,6 +395,8 @@ void TIM2_Init(void)
     TIM2_OC2PreloadConfig(ENABLE);
     TIM2_SetCounter(0x0000);
     TIM2_Cmd(ENABLE);
+		/* TIM2 IRQ13 highest priority (level 0) */
+		ITC->ISPR4 &= (uint8_t)(~0x0C);
 }
 
 
@@ -508,7 +510,8 @@ void RF_Remote(uint8_t level)
             if (!First_flag)
             {
                 /* Detect sync/preamble LOW width */
-                if ((LL_w > 40) && (LL_w < 60))
+               // if ((LL_w > 40) && (LL_w < 60))
+							 if ((LL_w >= 35) && (LL_w <= 65)) // Relax the detection range of the sync header.
                 {
                     First_flag = 1;
                     BitCount   = 0;
@@ -520,7 +523,8 @@ void RF_Remote(uint8_t level)
             else
             {
                 /* Decode data bits by LOW width */
-                if ((LL_w > 3) && (LL_w <= 7))
+                //if ((LL_w > 3) && (LL_w <= 7))
+								if ((LL_w >= 2) && (LL_w <= 7))  // Relax the lower limit of Bit 1 to 2 (enhance weak signal detection).
                 {
                     /* Bit '1' */
                     if (BitCount < RF_LEN)
@@ -530,7 +534,8 @@ void RF_Remote(uint8_t level)
                         BitCount++;
                     }
                 }
-                else if ((LL_w >= 8) && (LL_w < 13))
+                //else if ((LL_w >= 8) && (LL_w < 13))
+								else if ((LL_w >= 8) && (LL_w <= 15)) // Relax the upper limit of Bit 0 to 15 (tolerate noise-extended waveforms)
                 {
                     /* Bit '0' */
                     if (BitCount < RF_LEN)
@@ -600,8 +605,6 @@ void main()
     Delay_InIt(16);
     TIM2_Init();   //need ro mask  TIM2_PWM_Config()
 
-    enableInterrupts();
-
     /* Load all keys to RAM cache before entering main loop */
     Load_Keys_To_Cache();
 		
@@ -668,37 +671,59 @@ void main()
                         }
                     }
                 }
-
-                if (ret == 0) {
+								if (ret == 0) {
                     UART2_SendStr("Check 433m key!");
-                    i=0;
-                    wait_count=0;
+                    i = 0;
+                    wait_count = 0;
                     while(i < cached_key_count) {
-                        while(wait_count < 3) {
-                            LF_SendData(cached_keys[i][12],cached_keys[i][13],PATTREN_BIT,LF_SEND_CH1, 0x01, 0x01);
-                            Delay_ms(200);
+                        while(wait_count < 6) {  // 1. Increase retry count to 6 times to greatly improve long-range fault tolerance
+                            
+                            // 2. [Critical Fix] Before sending LF, forcibly clear the previous receive state and interrupt flags on the mainboard
+                            disableInterrupts();
+                            RFFull = 0;
+                            First_flag = 0;
+                            BitCount = 0;
+                            memset(Buff_B, 0, sizeof(Buff_B)); // Clear receive buffer
+                            enableInterrupts();
+
+                            // 3. Send 125kHz LF wake-up signal
+                            LF_SendData(cached_keys[i][12], cached_keys[i][13], PATTREN_BIT, LF_SEND_CH1, 0x01, 0x01);
+                            
+                            // 4. [Major Fix] Replace the original blocking 200ms delay with "segmented micro-delay dynamic monitoring"
+                            // Check RFFull every 5ms, wait up to 250ms total.
+                            // Once the KEY responds, the mainboard immediately reads and unlocks!
+                            {
+                                uint8_t delay_loop;
+                                for(delay_loop = 0; delay_loop < 70; delay_loop++) {
+                                    Delay_ms(5);
+                                    if (RFFull) {
+                                        break; // 433M data from KEY detected, exit waiting immediately
+                                    }
+                                }
+                            }
+                            
+                            // 5. Start decoding and matching
                             if (RFFull) {
                                 RF_Remote(2);
                                 if (Check_Combined_433M_Cached(RF_UartSend)) {
                                     UART2_SendStr("433m key matched!");
-                                    ret=1;
-                                    wait_count = 10;  /* Exit inner loop */
+                                    ret = 1;
+                                    wait_count = 10;  /* Match successful, exit inner loop */
                                     break;
                                 }
                                 else {
-                                    UART2_SendStr("433m key not matched, waiting for next key...");
-                                    RFFull = 0;  /* Reset flag, continue waiting for other keys */
+                                    UART2_SendStr("433m key not matched or CRC error, retry...");
+                                    RFFull = 0;  /* Clear status and allow next retry attempt */
                                 }
                             }
                             wait_count++;
                         }
 
-                        if(ret == 1) break;  /* Found matching key, exit outer loop */
-                        wait_count = 0;      /* Reset counter for next round */
+                        if(ret == 1) break;  /* Matching key found, exit outer polling loop */
+                        wait_count = 0;      /* Reset counter and test next cached key */
                         i++;
                     }
                 }
-
                 if(ret == 1) {
                         motor_turn_on();
                         TJTW_PKE.oper_state = PKE_OPER_STA_WAIT;
