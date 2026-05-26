@@ -604,7 +604,7 @@ void main()
 
     Delay_InIt(16);
     TIM2_Init();   //need ro mask  TIM2_PWM_Config()
-
+    enableInterrupts();
     /* Load all keys to RAM cache before entering main loop */
     Load_Keys_To_Cache();
 		
