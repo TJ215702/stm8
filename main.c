@@ -113,6 +113,20 @@ uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len, uint8_t ran) {
     return crc;
 }
 
+uint16_t Generate_Wakeup_Code(uint8_t *data, uint8_t len) {
+    uint16_t code = 0xA5A5;
+    uint8_t i;
+
+    for (i = 0; i < len; i++) {
+        code ^= (uint16_t)data[i] + 0x9B;
+        code = (uint16_t)((code << 7) | (code >> 9));
+        code += (uint16_t)(data[i] ^ (code >> 8));
+    }
+
+    code ^= 0x5A5A;
+    return code;
+}
+
 void Simple_Crypt(uint8_t *data, uint8_t len) {
     uint8_t i;
     for (i = 0; i < len; i++) {
@@ -441,16 +455,16 @@ void RF_Remote(uint8_t level)
             UART2_SendString((unsigned char*)hex_out, 3);
         }
         if(level ==1) {
-            calculated_crc = Calculate_CRC16(RF_UartSend, 8, 2);
-            RF_UartSend[8] = (uint8_t)(calculated_crc >> 8);   // CRC High
-            RF_UartSend[9] = (uint8_t)(calculated_crc & 0xFF); // CRC Low
+            calculated_crc = Generate_Wakeup_Code(RF_UartSend, 8);
+            RF_UartSend[8] = (uint8_t)(calculated_crc >> 8);   // wake-up code high
+            RF_UartSend[9] = (uint8_t)(calculated_crc & 0xFF); // wake-up code low
             memcpy(secure_key, RF_UartSend, 6);
             Simple_Crypt(secure_key, 6);
             final_crc = Calculate_CRC16(secure_key, 6, 1);
             secure_key[6] = (uint8_t)(final_crc >> 8);
             secure_key[7] = (uint8_t)(final_crc & 0xFF);
-            secure_key[8] = (uint8_t)(calculated_crc >> 8);   // CRC High
-            secure_key[9] = (uint8_t)(calculated_crc & 0xFF); // CRC Low
+            secure_key[8] = (uint8_t)(calculated_crc >> 8);   // wake-up code high
+            secure_key[9] = (uint8_t)(calculated_crc & 0xFF); // wake-up code low
 
         }
 
