@@ -68,6 +68,20 @@ uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len, uint8_t ran) {
     return crc;
 }
 
+uint16_t Generate_Wakeup_Code(uint8_t *data, uint8_t len) {
+    uint16_t code = 0xA5A5;
+    uint8_t i;
+
+    for (i = 0; i < len; i++) {
+        code ^= (uint16_t)data[i] + 0x9B;
+        code = (uint16_t)((code << 7) | (code >> 9));
+        code += (uint16_t)(data[i] ^ (code >> 8));
+    }
+
+    code ^= 0x5A5A;
+    return code;
+}
+
 void Get_STM8L_UniqueID(void)        
 {
      unsigned char i;
@@ -85,10 +99,10 @@ void Get_STM8L_UniqueID(void)
      STM8L_ID[6] = (uint8_t)(crc_result >> 8);   // CRC High
      STM8L_ID[7] = (uint8_t)(crc_result & 0xFF); // CRC Low
 
-     crc_result = Calculate_CRC16(STM8L_ID, 8, 2);
+     crc_result = Generate_Wakeup_Code(STM8L_ID, 8);
 
-     STM8L_ID[8] = (uint8_t)(crc_result >> 8);   // CRC High
-     STM8L_ID[9] = (uint8_t)(crc_result & 0xFF); // CRC Low
+     STM8L_ID[8] = (uint8_t)(crc_result >> 8);   // wake-up code high
+     STM8L_ID[9] = (uint8_t)(crc_result & 0xFF); // wake-up code low
 
      FLASH_Unlock(FLASH_MemType_Data);
 
