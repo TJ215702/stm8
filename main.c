@@ -425,7 +425,7 @@ void RF_Remote(uint8_t level)
         RF_UartSend[i] = Buff_B[i];
     }
     received_crc = ((uint16_t)RF_UartSend[6] << 8) | (uint16_t)RF_UartSend[7];
-    calculated_crc = Calculate_CRC16(RF_UartSend, 6,1);
+    calculated_crc = Calculate_CRC16(RF_UartSend, 6,level);
 
     RFFull = 0;
     if (level == 2) {
@@ -460,7 +460,7 @@ void RF_Remote(uint8_t level)
             RF_UartSend[9] = (uint8_t)(calculated_crc & 0xFF); // wake-up code low
             memcpy(secure_key, RF_UartSend, 6);
             Simple_Crypt(secure_key, 6);
-            final_crc = Calculate_CRC16(secure_key, 6, 1);
+            final_crc = Calculate_CRC16(secure_key, 6, 2);
             secure_key[6] = (uint8_t)(final_crc >> 8);
             secure_key[7] = (uint8_t)(final_crc & 0xFF);
             secure_key[8] = (uint8_t)(calculated_crc >> 8);   // wake-up code high
