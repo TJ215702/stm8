@@ -131,7 +131,7 @@ void Get_STM8L_UniqueID(void)
 
      memcpy(secure_key, STM8L_ID, 6);
      Simple_Crypt(secure_key, 6);
-     final_crc = Calculate_CRC16(secure_key, 6, 1);
+     final_crc = Calculate_CRC16(secure_key, 6, 2);
      secure_key[6] = (uint8_t)(final_crc >> 8);
      secure_key[7] = (uint8_t)(final_crc & 0xFF);
 
