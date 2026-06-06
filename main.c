@@ -581,6 +581,258 @@ void RF_Remote(uint8_t level)
         RFBit = 1;   /* Mark current level as HIGH */
     }
 }
+void Handle_State_Wait(uint8_t *ign_wait) {
+    UART2_SendStr("PKE_OPER_STA_WAIT in!");
+    if(IGN_IS_ON()) {  //ign on
+        TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+        UART2_SendStr("IGN_ON PKE_OPER_STA_WAIT out!");
+    }
+    else {
+        if(*ign_wait >=10) {
+            TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+            *ign_wait=0;
+            motor_turn_off();
+            UART2_SendStr("PKE_OPER_STA_WAIT out!");
+        }
+        else {
+            Delay_ms(1000);
+            (*ign_wait)++;
+        }
+    }
+}
+
+void Handle_State_Idle(int *idle) {
+    if(*idle==0) {
+        UART2_SendStr("PKE_OPER_STA_IDLE in!");
+        *idle=1;
+        //TIM2_CCxCmd(TIM2_CHANNEL_2, ENABLE);
+        TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
+    }
+    //BR_PWM(&brightness, &up);
+    //Delay_ms(10);
+    BR_LIGHT_ON(); //blue
+    if(TJTW_PKE.power_event_flag)
+    {
+        TJTW_PKE.power_event_flag = 0;
+        motor_turn_off();  //Power OFF event => Motor off
+        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+        TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
+        BR_LIGHT_OFF();
+        UART2_SendStr("PKE_OPER_STA_IDLE out!");
+        *idle=0;
+    }
+    else if (!IGN_IS_ON()) {  //ign off
+        motor_turn_off();
+        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+        TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
+        BR_LIGHT_OFF();
+        UART2_SendStr("IGN_OFF PKE_OPER_STA_IDLE out!");
+        *idle=0;
+    }
+}
+
+void Handle_State_Learn(void) {
+    int i;
+    int ret = 0;
+    uint8_t rfid_set = 0;
+    unsigned char rc522_SN[4];
+
+    UART2_SendStr("PKE_OPER_STA_LEARN in!");
+    TIM2_Init();
+    TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
+    GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
+    enableInterrupts();
+
+    for(i = 0; i < 25; i++) {
+        //BZ_ON();
+        LP_RIGHT_ON(); //red
+        BR_LIGHT_ON(); //blue
+        Delay_ms(100);
+        showcard(Tx_Buffer, &rfid_set, rc522_SN);
+        Reset_RC522();
+        if (rfid_set == 1) {
+            UART2_SendString(Tx_Buffer, 17);
+            i = 50;
+        }
+        //BZ_OFF();
+        LP_RIGHT_OFF();
+        BR_LIGHT_OFF();
+        Delay_ms(100);
+    }
+
+    if (rfid_set == 1) {
+        UART2_SendStr("433m key learned!");
+        i = 0;
+        while (i < 16) {
+            BR_LIGHT_ON(); //blue
+            LF_SendData(0xc3,0x3a,PATTREN_BIT,LF_SEND_CH1, 0x01, 0x01);
+            Delay_ms(100);
+            BR_LIGHT_OFF();
+            Delay_ms(150);
+            if (RFFull) {
+                RF_Remote(1);
+                UART2_SendStr("Get 433m key!");
+                BR_LIGHT_OFF();
+                break;
+            }
+            i++;
+        }
+
+        if (RF_set == 1) {
+            LF_SendData(0xc3,0x3a, PATTREN_BIT, LF_SEND_CH1, RF_UartSend[8], RF_UartSend[9]);
+            ret = Save_Combined_Key(rc522_SN, secure_key);
+            if (ret > 0) {
+                UART2_SendStr("Add 2 keys to eeprom failed!");
+                /* Flash red light 500ms for failed save */
+                LP_RIGHT_ON();
+                Delay_ms(500);
+                LP_RIGHT_OFF();
+            }
+            else {
+                UART2_SendStr("Add 2 keys to eeprom!");
+                /* Reload keys to cache after new key saved */
+                Load_Keys_To_Cache();
+            }
+        }
+        else {
+            UART2_SendStr("433m key not learned!");
+            /* Flash red light 500ms for no 433m key */
+            LP_RIGHT_ON();
+            Delay_ms(500);
+            LP_RIGHT_OFF();
+        }
+    }
+    else {
+        UART2_SendStr("RFID key not learned!");
+        /* Flash red light 500ms for no RFID key */
+        LP_RIGHT_ON();
+        Delay_ms(500);
+        LP_RIGHT_OFF();
+    }
+
+    RF_set = 0;
+    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+    UART2_SendStr("PKE_OPER_STA_LEARN out!");
+}
+
+void Handle_State_Power_On(void) {
+    int i;
+    int ret = 0;
+    int wait_count = 0;
+    uint8_t rfid_set = 0;
+    unsigned char rc522_SN[4];
+
+    UART2_SendStr("PKE_OPER_STA_POWER_ON in!");
+    enableInterrupts();
+    i = 0;
+    ret = 0;
+
+    UART2_SendStr("check RFID key!");
+    if (ret == 0) {
+        for (i = 0; i < 3; i++) {
+            Delay_ms(100);
+            showcard(Tx_Buffer, &rfid_set, rc522_SN);
+            Reset_RC522();
+            if (rfid_set == 1) {
+                UART2_SendString(Tx_Buffer, 17);
+                rfid_set = 0;
+                i = 50;
+                ret = Check_Combined_RFID(rc522_SN);
+            }
+        }
+    }
+
+    if (ret == 0) {
+        UART2_SendStr("Check 433m key!");
+        i = 0;
+        wait_count = 0;
+
+        while (i < cached_key_count) {
+            while (wait_count < 6) {
+                disableInterrupts();
+                RFFull = 0;
+                First_flag = 0;
+                BitCount = 0;
+                memset(Buff_B, 0, sizeof(Buff_B));
+                enableInterrupts();
+
+                LF_SendData(cached_keys[i][12], cached_keys[i][13], PATTREN_BIT, LF_SEND_CH1, 0x01, 0x01);
+
+                {
+                    uint8_t delay_loop;
+                    for (delay_loop = 0; delay_loop < 70; delay_loop++) {
+                        Delay_ms(5);
+                        if (RFFull) {
+                            break;
+                        }
+                    }
+                }
+
+                if (RFFull) {
+                    RF_Remote(2);
+                    if (Check_Combined_433M_Cached(RF_UartSend)) {
+                        UART2_SendStr("433m key matched!");
+                        ret = 1;
+                        wait_count = 10;
+                        break;
+                    } else {
+                        UART2_SendStr("433m key not matched or CRC error, retry...");
+                        RFFull = 0;
+                    }
+                }
+                wait_count++;
+            }
+
+            if (ret == 1) {
+                break;
+            }
+            wait_count = 0;
+            i++;
+        }
+    }
+
+    if (ret == 1) {
+        motor_turn_on();
+        TJTW_PKE.oper_state = PKE_OPER_STA_WAIT;
+        /* ign_wait is managed in main() and stays 0 when entering WAIT */
+    } else {
+        LP_RIGHT_ON();
+        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+        Delay_ms(500);
+        LP_RIGHT_OFF();
+    }
+
+    UART2_SendStr("PKE_OPER_STA_POWER_ON out!");
+}
+void Handle_State_Power_Off(void) {
+    UART2_SendStr("PKE_OPER_STA_POWER_OFF in!");
+    enableInterrupts();
+    MOTOR_STOP();
+    Delay_ms(50);
+    motor_turn_off();  /* Turn off motor before halt */
+    halt();
+    Delay_ms(50);
+    Clock_Config();
+    GPIO_Config();
+    TIM4_Init();
+    Uart_Init();
+    InitRc522();
+    Delay_ms(50);
+
+    if (TJTW_PKE.power_event_flag) {
+        TJTW_PKE.power_event_flag = 0;
+        /* Reload keys to cache after wake up */
+        Load_Keys_To_Cache();
+        if (GPIO_ReadInputPin(GPIOA, GPIO_PIN_2)) {
+            TJTW_PKE.oper_state = PKE_OPER_STA_LEARN;
+        } else {
+            TJTW_PKE.oper_state = PKE_OPER_STA_POWER_ON;
+        }
+    }
+    Uart_Init();
+    UART2_SendStr("PKE_OPER_STA_POWER_OFF out!");
+}
+
 
 void main()
 {
@@ -634,247 +886,19 @@ void main()
        
         switch(TJTW_PKE.oper_state) {
             case PKE_OPER_STA_POWER_OFF:
-                UART2_SendStr("PKE_OPER_STA_POWER_OFF in!");
-                enableInterrupts();
-                MOTOR_STOP();
-                Delay_ms(50);
-                motor_turn_off();  /* Turn off motor before halt */
-                halt();
-                Delay_ms(50);
-                Clock_Config();
-                GPIO_Config();
-                TIM4_Init();
-                Uart_Init();
-                InitRc522();
-                Delay_ms(50);
-
-                if(TJTW_PKE.power_event_flag) {
-                    TJTW_PKE.power_event_flag = 0;
-                    /* Reload keys to cache after wake up */
-                    Load_Keys_To_Cache();
-                    if(GPIO_ReadInputPin(GPIOA, GPIO_PIN_2))
-                    {
-                        TJTW_PKE.oper_state = PKE_OPER_STA_LEARN;
-                    }
-                    else
-                    {
-                        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_ON;
-                    }
-                }
-                Uart_Init();
-                UART2_SendStr("PKE_OPER_STA_POWER_OFF out!");
+                Handle_State_Power_Off();
                 break;
             case PKE_OPER_STA_POWER_ON:
-                UART2_SendStr("PKE_OPER_STA_POWER_ON in!");
-                enableInterrupts();
-                i=0;
-                ret=0;
-
-                UART2_SendStr("check RFID key!");
-                if (ret == 0) {
-                    for(i=0;i<3;i++) {
-                        Delay_ms(100);
-
-                        showcard(Tx_Buffer,&rfid_set,rc522_SN);
-                        Reset_RC522();
-                        if(rfid_set ==1) {
-                            UART2_SendString(Tx_Buffer, 17);
-                            rfid_set=0;
-                            i=50;
-                            ret=Check_Combined_RFID(rc522_SN);
-                        }
-                    }
-                }
-								if (ret == 0) {
-                    UART2_SendStr("Check 433m key!");
-                    i = 0;
-                    wait_count = 0;
-                    while(i < cached_key_count) {
-                        while(wait_count < 6) {  // 1. Increase retry count to 6 times to greatly improve long-range fault tolerance
-                            
-                            // 2. [Critical Fix] Before sending LF, forcibly clear the previous receive state and interrupt flags on the mainboard
-                            disableInterrupts();
-                            RFFull = 0;
-                            First_flag = 0;
-                            BitCount = 0;
-                            memset(Buff_B, 0, sizeof(Buff_B)); // Clear receive buffer
-                            enableInterrupts();
-
-                            // 3. Send 125kHz LF wake-up signal
-                            LF_SendData(cached_keys[i][12], cached_keys[i][13], PATTREN_BIT, LF_SEND_CH1, 0x01, 0x01);
-                            
-                            // 4. [Major Fix] Replace the original blocking 200ms delay with "segmented micro-delay dynamic monitoring"
-                            // Check RFFull every 5ms, wait up to 250ms total.
-                            // Once the KEY responds, the mainboard immediately reads and unlocks!
-                            {
-                                uint8_t delay_loop;
-                                for(delay_loop = 0; delay_loop < 70; delay_loop++) {
-                                    Delay_ms(5);
-                                    if (RFFull) {
-                                        break; // 433M data from KEY detected, exit waiting immediately
-                                    }
-                                }
-                            }
-                            
-                            // 5. Start decoding and matching
-                            if (RFFull) {
-                                RF_Remote(2);
-                                if (Check_Combined_433M_Cached(RF_UartSend)) {
-                                    UART2_SendStr("433m key matched!");
-                                    ret = 1;
-                                    wait_count = 10;  /* Match successful, exit inner loop */
-                                    break;
-                                }
-                                else {
-                                    UART2_SendStr("433m key not matched or CRC error, retry...");
-                                    RFFull = 0;  /* Clear status and allow next retry attempt */
-                                }
-                            }
-                            wait_count++;
-                        }
-
-                        if(ret == 1) break;  /* Matching key found, exit outer polling loop */
-                        wait_count = 0;      /* Reset counter and test next cached key */
-                        i++;
-                    }
-                }
-                if(ret == 1) {
-                        motor_turn_on();
-                        TJTW_PKE.oper_state = PKE_OPER_STA_WAIT;
-                        ign_wait=0;
-                } else {
-                        LP_RIGHT_ON();
-                        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                        Delay_ms(500);
-                        LP_RIGHT_OFF();
-                }
-                UART2_SendStr("PKE_OPER_STA_POWER_ON out!");
+                Handle_State_Power_On();
                 break;
             case PKE_OPER_STA_WAIT:
-                UART2_SendStr("PKE_OPER_STA_WAIT in!");
-                if(IGN_IS_ON()) {  //ign on
-                    TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
-                    UART2_SendStr("IGN_ON PKE_OPER_STA_WAIT out!");
-                }
-                else {
-                    if(ign_wait >=10) {
-                        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                        ign_wait=0;
-                        motor_turn_off();
-                        UART2_SendStr("PKE_OPER_STA_WAIT out!");
-                    }
-                    else {
-                        Delay_ms(1000);
-                        ign_wait++;
-                    }
-                }
-
+                Handle_State_Wait(&ign_wait);
                 break;
             case PKE_OPER_STA_IDLE:
-                if(idle==0) {
-                    UART2_SendStr("PKE_OPER_STA_IDLE in!");
-                    idle=1;
-                    //TIM2_CCxCmd(TIM2_CHANNEL_2, ENABLE);
-                    TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-                }
-                //BR_PWM(&brightness, &up);
-                //Delay_ms(10);
-                BR_LIGHT_ON(); //blue
-                if(TJTW_PKE.power_event_flag)
-                {
-                    TJTW_PKE.power_event_flag = 0;
-                    motor_turn_off();  //Power OFF event => Motor off
-                    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                    TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-                    BR_LIGHT_OFF();
-                    UART2_SendStr("PKE_OPER_STA_IDLE out!");
-                    idle=0;
-                }
-                else if (!IGN_IS_ON()) {  //ign off
-                    motor_turn_off();
-                    TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                    TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-                    BR_LIGHT_OFF();
-                    UART2_SendStr("IGN_OFF PKE_OPER_STA_IDLE out!");
-                    idle=0;
-                }
+                Handle_State_Idle(&idle);
                 break;
             case PKE_OPER_STA_LEARN:
-                UART2_SendStr("PKE_OPER_STA_LEARN in!");
-                TIM2_Init();
-                TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-                GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST);
-                enableInterrupts();
-                for(i=0;i<25;i++) {
-                    //BZ_ON();
-                    LP_RIGHT_ON(); //red
-                    BR_LIGHT_ON(); //blue
-                    Delay_ms(100);
-                    showcard(Tx_Buffer,&rfid_set,rc522_SN);
-                    Reset_RC522();
-                    if(rfid_set == 1) {
-                        UART2_SendString(Tx_Buffer, 17);
-                        i=50;
-                    }
-                    //BZ_OFF();
-                    LP_RIGHT_OFF();
-                    BR_LIGHT_OFF();
-                    Delay_ms(100);
-                }
-                if(rfid_set == 1) {
-                    UART2_SendStr("433m key learned!");
-                    i=0;
-                    while(i<16) {
-                        BR_LIGHT_ON(); //blue
-                        LF_SendData(0xc3,0x3a,PATTREN_BIT,LF_SEND_CH1, 0x01, 0x01);
-                        Delay_ms(100);
-                        BR_LIGHT_OFF();
-                        Delay_ms(150);
-                        if (RFFull) {
-                            RF_Remote(1);
-                            UART2_SendStr("Get 433m key!");
-                            BR_LIGHT_OFF();
-                            break;
-                        }
-                        i++;
-                    }
-
-                    if (RF_set == 1) {
-                        LF_SendData(0xc3,0x3a, PATTREN_BIT, LF_SEND_CH1, RF_UartSend[8], RF_UartSend[9]);
-                        ret = Save_Combined_Key(rc522_SN, secure_key);
-                        if (ret > 0) {
-                            UART2_SendStr("Add 2 keys to eeprom failed!");
-                            /* Flash red light 500ms for failed save */
-                            LP_RIGHT_ON();
-                            Delay_ms(500);
-                            LP_RIGHT_OFF();
-                        }
-                        else {
-                            UART2_SendStr("Add 2 keys to eeprom!");
-                            /* Reload keys to cache after new key saved */
-                            Load_Keys_To_Cache();
-                        }
-                    }
-                    else {
-                        UART2_SendStr("433m key not learned!");
-                        /* Flash red light 500ms for no 433m key */
-                        LP_RIGHT_ON();
-                        Delay_ms(500);
-                        LP_RIGHT_OFF();
-                    }
-                }
-                 else {
-                    UART2_SendStr("RFID key not learned!");
-                    /* Flash red light 500ms for no RFID key */
-                    LP_RIGHT_ON();
-                    Delay_ms(500);
-                    LP_RIGHT_OFF();
-                }
-
-                RF_set=0;
-                rfid_set=0;
-                TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                UART2_SendStr("PKE_OPER_STA_LEARN out!");
+                Handle_State_Learn();
                 break;
             default:
                 UART2_SendStr("Default state");
