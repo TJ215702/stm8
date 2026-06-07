@@ -589,17 +589,18 @@ void Handle_State_Wait(uint8_t *ign_wait)
     if (IGN_IS_ON()) {
         /* Ignition ON: transition to IDLE */
         TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
+        *ign_wait = 0;
         UART2_SendStr("IGN_ON PKE_OPER_STA_WAIT out!");
     } else {
-        if (*ign_wait >= 10) {
-            /* Timeout reached: return to POWER_OFF */
+        Delay_ms(1000);
+        (*ign_wait)++;
+
+        if (*ign_wait >= IGN_TIMEOUT_S) {
+            /* Timeout reached: return to POWER_OFF immediately on the 10th second */
             TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
             *ign_wait = 0;
             motor_turn_off();
             UART2_SendStr("PKE_OPER_STA_WAIT out!");
-        } else {
-            Delay_ms(1000);
-            (*ign_wait)++;
         }
     }
 }
@@ -762,8 +763,8 @@ void Handle_State_Power_On(void)
                 /* Wait for RF response (max 350ms) */
                 {
                     uint8_t delay_loop;
-                    for (delay_loop = 0; delay_loop < 70; delay_loop++) {
-                        Delay_ms(5);
+                    for (delay_loop = 0; delay_loop < 110; delay_loop++) {
+                        Delay_ms(2);
                         if (RFFull) {
                             break;
                         }
