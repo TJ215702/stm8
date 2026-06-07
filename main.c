@@ -8,6 +8,7 @@
 #include "rc522.h"
 #include "lf_send.h"
 #include <string.h>
+#include <stdlib.h>
 
 
 unsigned char RFFull = 0;
@@ -77,6 +78,7 @@ volatile struct PKE_config {
 
 //for ign to count down by 10s
 #define IGN_TIMEOUT_MS      10000UL
+#define IGN_TIMEOUT_S       (IGN_TIMEOUT_MS / 1000UL)
 #define IGN_IS_ON()         (GPIO_ReadInputPin(GPIOB, GPIO_PIN_5) != RESET)  //SET=1
 #define IGN_detect()         GPIO_ReadInputPin(GPIOB, GPIO_PIN_5)
 
@@ -125,6 +127,74 @@ uint16_t Generate_Wakeup_Code(uint8_t *data, uint8_t len) {
 
     code ^= 0x5A5A;
     return code;
+}
+
+static void seed_random_generator(void) {
+    uint16_t seed;
+
+    seed = ((uint16_t)TIM2->CNTRH << 8) | (uint16_t)TIM2->CNTRL;
+    seed ^= ((uint16_t)TIM4->CNTR << 8);
+    seed ^= ((uint16_t)Time_1ms << 4);
+    seed ^= ((uint16_t)LL_w << 1);
+    seed ^= (uint16_t)BitCount;
+
+    if (seed == 0u) {
+        seed = 0x1234u;
+    }
+
+    srand((unsigned int)seed);
+}
+
+static uint16_t generate_valid_rolling_counter(uint8_t wake_hi, uint8_t wake_lo) {
+    uint16_t wake_code = ((uint16_t)wake_hi << 8) | (uint16_t)wake_lo;
+    uint16_t candidate;
+
+    do {
+        candidate = (uint16_t)(((uint16_t)(rand() & 0x00FFu) << 8) |
+                               (uint16_t)(rand() & 0x00FFu));
+    } while ((candidate == 0x0000u) || (candidate == wake_code));
+
+    return candidate;
+}
+
+static void xtea_encrypt_host(uint32_t *v0, uint32_t *v1, const uint32_t *k) {
+    uint8_t i;
+    uint32_t sum = 0;
+    uint32_t delta = 0x9E3779B9;
+
+    for (i = 0; i < 32; i++) {
+        *v0 += (((*v1 << 4) ^ (*v1 >> 5)) + *v1) ^ (sum + k[sum & 3]);
+        sum += delta;
+        *v1 += (((*v0 << 4) ^ (*v0 >> 5)) + *v0) ^ (sum + k[(sum >> 11) & 3]);
+    }
+}
+
+static void generate_pke_rf_packet_host(const uint8_t *secure_key8, uint16_t rolling_counter, uint8_t *output_packet) {
+    uint32_t key[4];
+    uint32_t data0, data1;
+    uint16_t crc;
+
+    key[0] = ((uint32_t)secure_key8[0] << 24) | ((uint32_t)secure_key8[1] << 16) |
+             ((uint32_t)secure_key8[2] << 8)  | (uint32_t)secure_key8[3];
+    key[1] = ((uint32_t)secure_key8[4] << 24) | ((uint32_t)secure_key8[5] << 16) | 0x5A5A;
+    key[2] = 0x5A5A5A5A;
+    key[3] = 0x5A5A5A5A;
+
+    data0 = (uint32_t)rolling_counter;
+    data1 = 0x12345678;
+
+    xtea_encrypt_host(&data0, &data1, key);
+
+    output_packet[0] = (uint8_t)(data0 >> 24);
+    output_packet[1] = (uint8_t)(data0 >> 16);
+    output_packet[2] = (uint8_t)(data0 >> 8);
+    output_packet[3] = (uint8_t)data0;
+    output_packet[4] = (uint8_t)(data1 >> 24);
+    output_packet[5] = (uint8_t)(data1 >> 16);
+
+    crc = Calculate_CRC16(output_packet, 6, 2);
+    output_packet[6] = (uint8_t)(crc >> 8);
+    output_packet[7] = (uint8_t)(crc & 0xFF);
 }
 
 void Simple_Crypt(uint8_t *data, uint8_t len) {
@@ -340,23 +410,23 @@ void Load_Keys_To_Cache(void) {
 }
 
 /* Check 433M key against cached keys in RAM */
-u8 Check_Combined_433M_Cached(uint8_t *target_rf433) {
-    uint8_t i, k, match;
+u8 Check_Combined_433M_Cached(uint8_t key_idx, uint8_t *target_rf433, uint16_t rolling_counter) {
+    uint8_t k;
+    uint8_t expected_packet[8];
 
-    for (i = 0; i < cached_key_count; i++) {
-        match = 1;
-        /* Compare from offset +4 (8 bytes of secure_key with CRC) */
-        for (k = 0; k < 8; k++) {
-            if (cached_keys[i][4 + k] != target_rf433[k]) {
-                match = 0;
-                break;
-            }
-        }
-        if (match) {
-            return 1;
+    if (key_idx >= cached_key_count) {
+        return 0;
+    }
+
+    /* cached_keys[key_idx][4..11] is secure key data (8 bytes) */
+    generate_pke_rf_packet_host(&cached_keys[key_idx][4], rolling_counter, expected_packet);
+
+    for (k = 0; k < 8; k++) {
+        if (expected_packet[k] != target_rf433[k]) {
+            return 0;
         }
     }
-    return 0;
+    return 1;
 }
 
 static void GPIO_Config(void)
@@ -421,6 +491,7 @@ void RF_Remote(uint8_t level)
     char hex_out[4];
     uint16_t received_crc, calculated_crc, final_crc;
     disableInterrupts();
+    RF_set = 0;
     for (i = 0; i < 8; i++) {
         RF_UartSend[i] = Buff_B[i];
     }
@@ -429,8 +500,7 @@ void RF_Remote(uint8_t level)
 
     RFFull = 0;
     if (level == 2) {
-        /* POWER_ON: key should return secure key directly.
-           Only validate and print received packet; do not derive again. */
+        /* POWER_ON: key should return rolling packet with CRC only. */
         if (calculated_crc == received_crc ) {
             UART2_SendString("\r\nRF Data: ", 11);
             for (i = 0; i < 8; i++) {
@@ -442,7 +512,7 @@ void RF_Remote(uint8_t level)
             }
             RF_set = 1;
         } else {
-            UART2_SendString("\r\nRF Data CRC/Header Error in POWER_ON! ", 40);
+            UART2_SendString("\r\nRF Data CRC Error in POWER_ON! ", 34);
         }
     } else if (calculated_crc == received_crc && RF_UartSend[0] == 0x54 && RF_UartSend[1] == 0x4A) {
         RF_set = 1;
@@ -722,6 +792,9 @@ void Handle_State_Power_On(void)
     int i;
     int ret = 0;
     int wait_count = 0;
+    uint8_t rolling_hi;
+    uint8_t rolling_lo;
+    uint16_t rolling_counter;
     uint8_t rfid_set = 0;
     unsigned char rc522_SN[4];
 
@@ -751,21 +824,27 @@ void Handle_State_Power_On(void)
         while (i < cached_key_count) {
             while (wait_count < 6) {
                 disableInterrupts();
+                RF_set = 0;
                 RFFull = 0;
                 First_flag = 0;
                 BitCount = 0;
                 memset(Buff_B, 0, sizeof(Buff_B));
                 enableInterrupts();
 
+                rolling_counter = generate_valid_rolling_counter(cached_keys[i][12], cached_keys[i][13]);
+                rolling_hi = (uint8_t)(rolling_counter >> 8);
+                rolling_lo = (uint8_t)(rolling_counter & 0xFF);
+
                 /* Send LF command with wakeup code from cached key */
-                LF_SendData(cached_keys[i][12], cached_keys[i][13], PATTREN_BIT, LF_SEND_CH1, 0x01, 0x01);
+                LF_SendData(cached_keys[i][12], cached_keys[i][13], PATTREN_BIT, LF_SEND_CH1, rolling_hi, rolling_lo);
 
                 /* Wait for RF response (max 350ms) */
                 {
                     uint8_t delay_loop;
-                    for (delay_loop = 0; delay_loop < 110; delay_loop++) {
+                    for (delay_loop = 0; delay_loop < 160; delay_loop++) {
                         Delay_ms(2);
                         if (RFFull) {
+                            disableInterrupts();
                             break;
                         }
                     }
@@ -774,13 +853,17 @@ void Handle_State_Power_On(void)
                 /* Validate received RF data */
                 if (RFFull) {
                     RF_Remote(2);
-                    if (Check_Combined_433M_Cached(RF_UartSend)) {
+                    if (RF_set && Check_Combined_433M_Cached((uint8_t)i, RF_UartSend, rolling_counter)) {
                         UART2_SendStr("433m key matched!");
                         ret = 1;
                         wait_count = 10;  /* Exit inner loop */
                         break;
                     } else {
-                        UART2_SendStr("433m key not matched or CRC error, retry...");
+                        if (RF_set) {
+                            UART2_SendStr("433m rolling packet mismatch, retry...");
+                        } else {
+                            UART2_SendStr("433m RF CRC error, retry...");
+                        }
                         RFFull = 0;
                     }
                 }
@@ -793,6 +876,7 @@ void Handle_State_Power_On(void)
             wait_count = 0;
             i++;
         }
+        enableInterrupts();
     }
 
     /* Step 3: Execute action based on validation result */
@@ -881,6 +965,7 @@ void main()
     Delay_InIt(16);
     TIM2_Init();   //need ro mask  TIM2_PWM_Config()
     enableInterrupts();
+    seed_random_generator();
     /* Load all keys to RAM cache before entering main loop */
     Load_Keys_To_Cache();
 		
