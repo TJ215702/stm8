@@ -12,6 +12,7 @@ unsigned char Wake_Date[20];
 unsigned char RSSI_Date[3];
 unsigned char STM8L_ID[10];
 unsigned char secure_key[8];
+uint16_t rolling_counter = 0x0101;
 unsigned char UserKey_Flag = 0;
 unsigned char key_use = 0;
 unsigned long RF_SN;                
@@ -32,19 +33,6 @@ void AS3933_SetWakeupPattern(uint8_t pattern_low, uint8_t pattern_high);
 #define DEFAULT_WAKEUP_PATTERN_L 0x3A     // Default broadcast wakeup pattern (Low Byte)
 #define DEFAULT_WAKEUP_PATTERN_H 0xC3     // Default broadcast wakeup pattern (High Byte)
 
-
-
-void Simple_Crypt(uint8_t *data, uint8_t len){
-     uint8_t i;
-     for (i = 0; i < len; i++) {
-
-          data[i] ^= Secret_Key[i % 8];
-
-          data[i] = ~data[i];
-
-          data[i] ^= i;
-     }
-}
 
 // CRC16  (CCITT: x^16 + x^12 + x^5 + 1)
 uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len, uint8_t ran) {
@@ -67,6 +55,67 @@ uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len, uint8_t ran) {
     }
     return crc;
 }
+
+void xtea_encrypt(uint32_t *v0, uint32_t *v1, const uint32_t *k) {
+    uint8_t i;
+    uint32_t sum = 0;
+    uint32_t delta = 0x9E3779B9; // XTEA 固定常數
+
+    for (i = 0; i < 32; i++) {
+        *v0 += (((*v1 << 4) ^ (*v1 >> 5)) + *v1) ^ (sum + k[sum & 3]);
+        sum += delta;
+        *v1 += (((*v0 << 4) ^ (*v0 >> 5)) + *v0) ^ (sum + k[(sum >> 11) & 3]);
+    }
+}
+
+void generate_pke_rf_packet(const uint8_t *secure_key, uint16_t rolling_counter, uint8_t *output_packet) {
+    uint32_t key[4];
+    uint32_t data0, data1;
+    uint16_t crc;
+
+    // 第一步：把 6-byte 的 Secure Key 填入 4 個 32-bit 的 key 陣列中
+    // 不夠的位置直接填固定的 0x5A
+    key[0] = ((uint32_t)secure_key[0] << 24) | ((uint32_t)secure_key[1] << 16) |
+             ((uint32_t)secure_key[2] << 8)  | (uint32_t)secure_key[3];
+    key[1] = ((uint32_t)secure_key[4] << 24) | ((uint32_t)secure_key[5] << 16) | 0x5A5A;
+    key[2] = 0x5A5A5A5A;
+    key[3] = 0x5A5A5A5A;
+
+    // 第二步：準備要被加密的兩組 32-bit 資料 (data0 和 data1)
+    // 我們直接把 2-byte 滾動碼放進 data0，data1 放一組固定數字
+    data0 = (uint32_t)rolling_counter;
+    data1 = 0x12345678;
+
+    // 第三步：丟進去加密，data0 和 data1 的數值會被直接打亂
+    xtea_encrypt(&data0, &data1, key);
+
+    // 第四步：把加密完的 32-bit 結果，拆解回你要的 6-byte Data 封包
+    output_packet[0] = (uint8_t)(data0 >> 24);
+    output_packet[1] = (uint8_t)(data0 >> 16);
+    output_packet[2] = (uint8_t)(data0 >> 8);
+    output_packet[3] = (uint8_t)(data0);
+    output_packet[4] = (uint8_t)(data1 >> 24);
+    output_packet[5] = (uint8_t)(data1 >> 16);
+
+    // 第五步：計算這 6 個 byte 的 CRC-16，填入最後 2 個 byte
+    crc = Calculate_CRC16(output_packet, 6, 2); // 使用我們之前定義的 CRC 函數
+    output_packet[6] = (uint8_t)(crc >> 8);
+    output_packet[7] = (uint8_t)(crc & 0xFF);
+}
+
+void Simple_Crypt(uint8_t *data, uint8_t len){
+     uint8_t i;
+     for (i = 0; i < len; i++) {
+
+          data[i] ^= Secret_Key[i % 8];
+
+          data[i] = ~data[i];
+
+          data[i] ^= i;
+     }
+}
+
+
 
 uint16_t Generate_Wakeup_Code(uint8_t *data, uint8_t len) {
     uint16_t code = 0xA5A5;
@@ -444,6 +493,11 @@ main()
                     RF_SendData(2);
                     WakeData_Flag = 0;
                }
+               if(WakeData_Flag ==3)
+               {
+                    RF_SendData(3);
+                    WakeData_Flag = 0;
+               }
 
           }
 		 if(UserKey_Flag)
@@ -541,10 +595,15 @@ void AS3933_WakeUp(void)
           {
                WakeData_Flag = 1;
           }
-          // After binding, any valid wake under private wake pattern returns secure key only.
-          else if (key_use == REGISTRATION_MARK_VALUE)
+          // After binding, treat payload as rolling challenge only when
+          // [1]/[2] are not the key's own wakeup code bytes.
+          else if ((key_use == REGISTRATION_MARK_VALUE) &&
+                   (Wake_Date[0] == 0x03) &&
+                   (Wake_Date[3] == 0x01) &&
+                   !((Wake_Date[1] == STM8L_ID[8]) && (Wake_Date[2] == STM8L_ID[9])))
           {
-               WakeData_Flag = 2;
+               rolling_counter = ((uint16_t)Wake_Date[1] << 8) | (uint16_t)Wake_Date[2];
+               WakeData_Flag = 3;
           }
           AS3933_COMM(0xC0);
      }
@@ -564,6 +623,7 @@ void AS3933_SetWakeupPattern(uint8_t pattern_low, uint8_t pattern_high) {
 void RF_SendData(unsigned char Key)
 {
      unsigned char i,j,k;
+     uint8_t rolling_packet[8];
      unsigned long MSB_Temp = 0x00800000;
      
      unsigned long Current_Data, send_data_high, send_data_low;
@@ -575,6 +635,17 @@ void RF_SendData(unsigned char Key)
      else if(Key == 2) {
           send_data_high = secureData_High;
           send_data_low = secureData_Low;
+     }
+     else if(Key == 3) {
+          generate_pke_rf_packet(secure_key, rolling_counter, rolling_packet);
+          send_data_high = ((uint32_t)rolling_packet[0] << 24) |
+                           ((uint32_t)rolling_packet[1] << 16) |
+                           ((uint32_t)rolling_packet[2] << 8)  |
+                           ((uint32_t)rolling_packet[3]);
+          send_data_low  = ((uint32_t)rolling_packet[4] << 24) |
+                           ((uint32_t)rolling_packet[5] << 16) |
+                           ((uint32_t)rolling_packet[6] << 8)  |
+                           ((uint32_t)rolling_packet[7]);
      }
      else
           return;
