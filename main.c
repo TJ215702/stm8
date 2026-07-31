@@ -656,6 +656,16 @@ void Handle_State_Wait(uint8_t *ign_wait)
 {
     UART2_SendStr("PKE_OPER_STA_WAIT in!");
 
+    /* Check if Power Key is pressed; if so, immediately shut down to POWER_OFF */
+    if (TJTW_PKE.power_event_flag) {
+        TJTW_PKE.power_event_flag = 0;             // Clear power key trigger flag
+        motor_turn_off();                           // Execute motor locking
+        BR_LIGHT_OFF();                             // Turn off the light
+        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF; // Transition to POWER_OFF state
+        *ign_wait = 0;                                  // Exit WAIT state
+        return;
+    }
+
     if (IGN_IS_ON()) {
         /* Ignition ON: transition to IDLE */
         TJTW_PKE.oper_state = PKE_OPER_STA_IDLE;
@@ -675,6 +685,7 @@ void Handle_State_Wait(uint8_t *ign_wait)
     }
 }
 
+
 void Handle_State_Idle(int *idle)
 {
     if (*idle == 0) {
@@ -686,16 +697,14 @@ void Handle_State_Idle(int *idle)
     /* Blue light indicator */
     BR_LIGHT_ON();
 
+    /* Power Key press in IDLE state; clear flag only */
     if (TJTW_PKE.power_event_flag) {
-        /* Power OFF event */
-        TJTW_PKE.power_event_flag = 0;
-        motor_turn_off();
-        TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-        TIM2_CCxCmd(TIM2_CHANNEL_2, DISABLE);
-        BR_LIGHT_OFF();
-        UART2_SendStr("PKE_OPER_STA_IDLE out!");
-        *idle = 0;
-    } else if (!IGN_IS_ON()) {
+        TJTW_PKE.power_event_flag = 0; // Clear flag without executing motor_turn_off() or state transition
+        UART2_SendStr("Power Key pressed during IDLE, ignored!");
+    } 
+    
+    /* Transition to POWER_OFF only when ignition switch (IGN) is manually turned OFF */
+    if (!IGN_IS_ON()) {
         /* Ignition OFF event */
         motor_turn_off();
         TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
