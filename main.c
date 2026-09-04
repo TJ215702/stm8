@@ -941,6 +941,30 @@ void Handle_State_Power_Off(void)
     UART2_SendStr("PKE_OPER_STA_POWER_OFF out!");
 }
 
+void Poll_RFID(void)
+{
+    uint8_t rfid_set = 0;
+    unsigned char rc522_SN[4];
+    const char hex_chars[] = "0123456789ABCDEF";
+    char hex_out[4];
+    uint8_t i;
+
+    showcard(Tx_Buffer, &rfid_set, rc522_SN);
+    Reset_RC522();
+
+    if (rfid_set == 1) {
+        UART2_SendString("\nRFID UID: ", 12);
+        for (i = 0; i < 4; i++) {
+            hex_out[0] = hex_chars[(rc522_SN[i] >> 4) & 0x0F];
+            hex_out[1] = hex_chars[rc522_SN[i] & 0x0F];
+            hex_out[2] = ' ';
+            UART2_SendString((unsigned char*)hex_out, 3);
+        }
+        UART2_SendString("\t", 2);
+    }
+
+    Delay_ms(200);
+}
 
 void main()
 {
@@ -988,27 +1012,28 @@ void main()
         //     RF_Remote();
         // }
        
-        switch(TJTW_PKE.oper_state) {
-            case PKE_OPER_STA_POWER_OFF:
-                Handle_State_Power_Off();
-                break;
-            case PKE_OPER_STA_POWER_ON:
-                Handle_State_Power_On();
-                break;
-            case PKE_OPER_STA_WAIT:
-                Handle_State_Wait(&ign_wait);
-                break;
-            case PKE_OPER_STA_IDLE:
-                Handle_State_Idle(&idle);
-                break;
-            case PKE_OPER_STA_LEARN:
-                Handle_State_Learn();
-                break;
-            default:
-                UART2_SendStr("Default state");
-                TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-                break;
-        }
+        // switch(TJTW_PKE.oper_state) {
+        //     case PKE_OPER_STA_POWER_OFF:
+        //         Handle_State_Power_Off();
+        //         break;
+        //     case PKE_OPER_STA_POWER_ON:
+        //         Handle_State_Power_On();
+        //         break;
+        //     case PKE_OPER_STA_WAIT:
+        //         Handle_State_Wait(&ign_wait);
+        //         break;
+        //     case PKE_OPER_STA_IDLE:
+        //         Handle_State_Idle(&idle);
+        //         break;
+        //     case PKE_OPER_STA_LEARN:
+        //         Handle_State_Learn();
+        //         break;
+        //     default:
+        //         UART2_SendStr("Default state");
+        //         TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
+        //         break;
+        // }
+        Poll_RFID();
 
     }
 }
