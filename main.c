@@ -10,6 +10,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define TEST_MODE_RFID   0      //  RFID test mode
+#define TEST_MODE_LF     1    //  LF (125kHz / 433MHz) test mode
+
 
 unsigned char RFFull = 0;
 unsigned char RFBit;
@@ -91,7 +94,9 @@ const uint8_t mcu_user_config[MCU_REG_NUM] =
     0x00,0x00,
 };
 
+#if TEST_MODE_RFID
 u8 Tx_Buffer[] = "RFID---test";
+#endif
 #define  BufferSize (countof(Tx_Buffer)-1)
 
 uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len, uint8_t ran) {
@@ -941,6 +946,7 @@ void Handle_State_Power_Off(void)
     UART2_SendStr("PKE_OPER_STA_POWER_OFF out!");
 }
 
+#if TEST_MODE_RFID
 void Poll_RFID(void)
 {
     uint8_t rfid_set = 0;
@@ -965,6 +971,18 @@ void Poll_RFID(void)
 
     Delay_ms(200);
 }
+#endif
+
+#if TEST_MODE_LF
+void Test_LF_Simple(void)
+{
+
+    LF_SendData(0xc3, 0x3a, PATTREN_BIT, LF_SEND_CH1, 0x01, 0x01);
+    Delay_ms(100);
+
+    
+}
+#endif
 
 void main()
 {
@@ -1006,34 +1024,16 @@ void main()
 		
     while(1)
     {
-        // LF_SendData(PATTERN1,PATTERN2,PATTREN_BIT,LF_SEND_CH1);
-        // Delay_ms(250);
-        // if (RFFull) {
-        //     RF_Remote();
-        // }
-       
-        // switch(TJTW_PKE.oper_state) {
-        //     case PKE_OPER_STA_POWER_OFF:
-        //         Handle_State_Power_Off();
-        //         break;
-        //     case PKE_OPER_STA_POWER_ON:
-        //         Handle_State_Power_On();
-        //         break;
-        //     case PKE_OPER_STA_WAIT:
-        //         Handle_State_Wait(&ign_wait);
-        //         break;
-        //     case PKE_OPER_STA_IDLE:
-        //         Handle_State_Idle(&idle);
-        //         break;
-        //     case PKE_OPER_STA_LEARN:
-        //         Handle_State_Learn();
-        //         break;
-        //     default:
-        //         UART2_SendStr("Default state");
-        //         TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
-        //         break;
-        // }
+        
+#if TEST_MODE_RFID
         Poll_RFID();
+
+#elif TEST_MODE_LF
+        Test_LF_Simple();
+
+#else
+        #error 
+#endif
 
     }
 }
