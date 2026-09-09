@@ -11,7 +11,8 @@
 #include <stdlib.h>
 
 #define TEST_MODE_RFID   0      //  RFID test mode
-#define TEST_MODE_LF     1    //  LF (125kHz / 433MHz) test mode
+#define TEST_MODE_LF     1      //  LF (125kHz / 433MHz) test mode
+#define TEST_MODE_RF433  1      //  433M test mode
 
 
 unsigned char RFFull = 0;
@@ -94,9 +95,9 @@ const uint8_t mcu_user_config[MCU_REG_NUM] =
     0x00,0x00,
 };
 
-#if TEST_MODE_RFID
+
 u8 Tx_Buffer[] = "RFID---test";
-#endif
+
 #define  BufferSize (countof(Tx_Buffer)-1)
 
 uint16_t Calculate_CRC16(uint8_t *ptr, uint8_t len, uint8_t ran) {
@@ -976,11 +977,28 @@ void Poll_RFID(void)
 #if TEST_MODE_LF
 void Test_LF_Simple(void)
 {
-
     LF_SendData(0xc3, 0x3a, PATTREN_BIT, LF_SEND_CH1, 0x01, 0x01);
-    Delay_ms(100);
+    Delay_ms(500);
+}
+#endif
 
-    
+#if TEST_MODE_RF433
+void Test_RF433_Simple(void)
+{
+
+    if (RFFull)
+    {
+        BZ_ON();
+        Delay_ms(50);
+        BZ_OFF();
+
+        disableInterrupts();
+        RFFull = 0;
+        First_flag = 0;
+        BitCount = 0;
+        memset(Buff_B, 0, sizeof(Buff_B));
+        enableInterrupts();
+    }
 }
 #endif
 
@@ -1027,12 +1045,14 @@ void main()
         
 #if TEST_MODE_RFID
         Poll_RFID();
+        #endif
 
-#elif TEST_MODE_LF
+#if TEST_MODE_LF
         Test_LF_Simple();
+        #endif
 
-#else
-        #error 
+#if TEST_MODE_RF433
+        Test_RF433_Simple(); 
 #endif
 
     }
