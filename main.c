@@ -22,10 +22,6 @@ u8 RF_set=0;
 unsigned char BitCount;
 unsigned char Time_1ms = 0;
 
-/* Key cache in RAM (loaded from EEPROM before halt) */
-uint8_t cached_key_count = 0;
-uint8_t cached_keys[5][16];  // 5 x 16 bytes
-
 #define RF_LEN       64
 const uint8_t Secret_Key[8] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0};
 
@@ -72,7 +68,7 @@ volatile struct PKE_config {
 #define RF_DATA_LOW()        (GPIO_ReadInputPin(GPIOD, GPIO_PIN_0) == RESET)   //RESET=0
 
 #define KEY_BLOCK_SIZE       16    // 4 (RFID) + 8 (full Buff_B, include CRC) + 2 (wake up)
-#define MAX_KEY_NUM          5
+#define MAX_KEY_NUM          3
 #define KEY_DATA_START_ADDR  0x00004110
 #define KEY_COUNT_ADDR       0x00004100
 
@@ -83,6 +79,15 @@ volatile struct PKE_config {
 #define IGN_detect()         GPIO_ReadInputPin(GPIOB, GPIO_PIN_5)
 
 #define MCU_REG_NUM      26
+
+#define RX_WINDOW_LOOPS      160   /* Wait time per attempt = RX_WINDOW_LOOPS * 2ms */
+#define ATTEMPTS_PER_VISIT   2     /* Retries per key before rotating */
+#define SEARCH_ROUNDS        3     /* run 3 round */
+
+/* Key cache in RAM (loaded from EEPROM before halt) */
+uint8_t cached_key_count = 0;
+uint8_t cached_keys[MAX_KEY_NUM][16];  // 5 x 16 bytes
+
 const uint8_t mcu_user_config[MCU_REG_NUM] =
 {
     0xA5,0x5A,0x01,0x7D,0x80,0x00,0x00,0x01,
@@ -260,7 +265,7 @@ u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
     if (num > MAX_KEY_NUM)
         num = 0;
 
-    // --- first：check exist or not ---
+    // --- first : check exist or not ---
     for (i = 0; i < num; i++) {
         addr = KEY_DATA_START_ADDR + (i * KEY_BLOCK_SIZE);
 
@@ -275,7 +280,7 @@ u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
             }
         }
 
-        // check 433M is exist or not (8 bytes, 含 CRC)
+        // check 433M is exist or not (8 bytes, with CRC)
         for (k = 0; k < 8; k++) {
             if (FLASH_ReadByte(addr + 4 + k) != rf433_full[k]) {
                 rf433_match = 0;
@@ -291,21 +296,22 @@ u8 Save_Combined_Key(uint8_t *rfid, uint8_t *rf433_full) {
         }
     }
 
-    // --- 第二部分：確定不存在，執行寫入 ---
-    // 這裡我們採用循環覆蓋邏輯，若 num=5 則從 0 開始存
+    // --- Part 2: Entry not found, proceed to write ---
+    // Use circular buffer logic; wrap around to 0 if num reaches 3
     write_index = (num >= MAX_KEY_NUM) ? 0 : num;
     addr = KEY_DATA_START_ADDR + (write_index * KEY_BLOCK_SIZE);
 
-    // 寫入 RFID
+    // Write RFID
     for (k = 0; k < 4; k++) {
         FLASH_ProgramByte(addr + k, rfid[k]);
     }
-    // 寫入 433MHz (含 CRC 共 10 bytes) 最後2byte是8byte raw key的crc也是新的喚醒碼
+    // Write 433MHz payload (10 bytes incl. CRC)
+    // Last 2 bytes: CRC of the 8-byte raw key, also used as the new wake-up code
     for (k = 0; k < 10; k++) {
         FLASH_ProgramByte(addr + 4 + k, rf433_full[k]);
     }
 
-    // 更新數量 (如果還沒滿才增加，滿了就維持 MAX_KEY_NUM)
+    // Update count (increment if not full, cap at MAX_KEY_NUM)
     if (num < MAX_KEY_NUM) {
         FLASH_ProgramByte(KEY_COUNT_ADDR, num + 1);
     }
@@ -342,7 +348,7 @@ u8 Check_Combined_433M(uint8_t *target_rf433) {
     for (i = 0; i < num; i++) {
         addr = KEY_DATA_START_ADDR + (i * KEY_BLOCK_SIZE);
         match = 1;
-        // 從偏移量 +4 開始比對 8 bytes (含 CRC)
+        // Compare 8 bytes starting at offset +4 (with CRC)
         for (k = 0; k < 8; k++) {
             if (FLASH_ReadByte(addr + 4 + k) != target_rf433[k]) {
                 match = 0;
@@ -369,7 +375,7 @@ u8 Check_Combined_RFID(uint8_t *target_rfid) {
     for (i = 0; i < num; i++) {
         addr = KEY_DATA_START_ADDR + (i * KEY_BLOCK_SIZE);
         match = 1;
-        // 從偏移量 +0 開始比對 4 bytes
+        // Compare 4 bytes starting at offset +0
         for (k = 0; k < 4; k++) {
             if (FLASH_ReadByte(addr + k) != target_rfid[k]) {
                 match = 0;
@@ -800,12 +806,15 @@ void Handle_State_Power_On(void)
 {
     int i;
     int ret = 0;
-    int wait_count = 0;
+    uint8_t rfid_set = 0;
+    unsigned char rc522_SN[4];
+
+    uint8_t round;
+    uint8_t key_idx;
+    uint8_t attempt;
     uint8_t rolling_hi;
     uint8_t rolling_lo;
     uint16_t rolling_counter;
-    uint8_t rfid_set = 0;
-    unsigned char rc522_SN[4];
 
     UART2_SendStr("PKE_OPER_STA_POWER_ON in!");
     enableInterrupts();
@@ -824,77 +833,75 @@ void Handle_State_Power_On(void)
         }
     }
 
-    /* Step 2: If RFID not matched, check 433M key */
+    /* Step 2: If RFID not matched, check 433M key
+     * round(3) -> key_idx(3) -> attempt(2)
+     */
     if (ret == 0) {
-        UART2_SendStr("Check 433m key!");
-        i = 0;
-        wait_count = 0;
+        UART2_SendStr("Check 433m key !");
 
-        while (i < cached_key_count) {
-            while (wait_count < 6) {
-                disableInterrupts();
-                RF_set = 0;
-                RFFull = 0;
-                First_flag = 0;
-                BitCount = 0;
-                memset(Buff_B, 0, sizeof(Buff_B));
-                enableInterrupts();
+        for (round = 0; round < SEARCH_ROUNDS && ret == 0; round++) {
 
-                rolling_counter = generate_valid_rolling_counter(cached_keys[i][12], cached_keys[i][13]);
-                rolling_hi = (uint8_t)(rolling_counter >> 8);
-                rolling_lo = (uint8_t)(rolling_counter & 0xFF);
+            for (key_idx = 0; key_idx < cached_key_count && ret == 0; key_idx++) {
 
-                /* Send LF command with wakeup code from cached key */
-                LF_SendData(cached_keys[i][12], cached_keys[i][13], PATTREN_BIT, LF_SEND_CH1, rolling_hi, rolling_lo);
+                for (attempt = 0; attempt < ATTEMPTS_PER_VISIT && ret == 0; attempt++) {
 
-                /* Wait for RF response (max 350ms) */
-                {
-                    uint8_t delay_loop;
-                    for (delay_loop = 0; delay_loop < 160; delay_loop++) {
-                        Delay_ms(2);
-                        if (RFFull) {
-                            disableInterrupts();
-                            break;
+                    disableInterrupts();
+                    RF_set = 0;
+                    RFFull = 0;
+                    First_flag = 0;
+                    BitCount = 0;
+                    memset(Buff_B, 0, sizeof(Buff_B));
+                    enableInterrupts();
+
+                    rolling_counter = generate_valid_rolling_counter(
+                                           cached_keys[key_idx][12],
+                                           cached_keys[key_idx][13]);
+                    rolling_hi = (uint8_t)(rolling_counter >> 8);
+                    rolling_lo = (uint8_t)(rolling_counter & 0xFF);
+
+                    /* Send LF command with wakeup code from cached key */
+                    LF_SendData(cached_keys[key_idx][12], cached_keys[key_idx][13],
+                                PATTREN_BIT, LF_SEND_CH1, rolling_hi, rolling_lo);
+
+                    /* Wait for RF response (max 350ms) */
+                    {
+                        uint8_t delay_loop;
+                        for (delay_loop = 0; delay_loop < RX_WINDOW_LOOPS; delay_loop++) {
+                            Delay_ms(2);
+                            if (RFFull) {
+                                disableInterrupts();
+                                break;
+                            }
                         }
                     }
-                }
 
-                /* Validate received RF data */
-                if (RFFull) {
-                    RF_Remote(2);
-                    if (RF_set && Check_Combined_433M_Cached((uint8_t)i, RF_UartSend, rolling_counter)) {
-                        UART2_SendStr("433m key matched!");
-                        ret = 1;
-                        wait_count = 10;  /* Exit inner loop */
-                        break;
-                    } else {
-                        if (RF_set) {
-                            UART2_SendStr("433m rolling packet mismatch, retry...");
+                    if (RFFull) {
+                        RF_Remote(2);
+                        if (RF_set && Check_Combined_433M_Cached(key_idx, RF_UartSend, rolling_counter)) {
+                            UART2_SendStr("433m key matched!");
+                            ret = 1;
                         } else {
-                            UART2_SendStr("433m RF CRC error, retry...");
+                            if (RF_set) {
+                                UART2_SendStr("433m rolling packet mismatch, retry...");
+                            } else {
+                                UART2_SendStr("433m RF CRC error, retry...");
+                            }
                         }
                         RFFull = 0;
                     }
-                }
-                wait_count++;
-            }
 
-            if (ret == 1) {
-                break;  /* Exit outer loop */
-            }
-            wait_count = 0;
-            i++;
-        }
+                } 
+            } 
+        } 
+
         enableInterrupts();
     }
 
     /* Step 3: Execute action based on validation result */
     if (ret == 1) {
-        /* Key validation successful: unlock motor and transition to WAIT */
         motor_turn_on();
         TJTW_PKE.oper_state = PKE_OPER_STA_WAIT;
     } else {
-        /* Key validation failed: flash red light and return to POWER_OFF */
         LP_RIGHT_ON();
         TJTW_PKE.oper_state = PKE_OPER_STA_POWER_OFF;
         Delay_ms(500);
