@@ -1023,7 +1023,7 @@ void main()
     InitRc522();
     Delay_ms(100);
     //TIM2_PWM_Config();
-    //Clear_PKE_EEPROM();
+    Clear_PKE_EEPROM();
 
     LF_ClockOccurs(125);
     for (cfg_idx = 0; cfg_idx < MCU_REG_NUM; cfg_idx++) {
